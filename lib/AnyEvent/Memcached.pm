@@ -9,7 +9,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =head1 VERSION
 
-Version 0.01_1
+Version 0.01_2
 
 =head1 NOTICE
 
@@ -19,7 +19,7 @@ If you want to rely on some features, please, notify me about them
 
 =cut
 
-our $VERSION = '0.01_1';
+our $VERSION = '0.01_2';
 
 =head1 SYNOPSIS
 
@@ -68,7 +68,6 @@ use AnyEvent;
 use AnyEvent::Socket;
 use AnyEvent::Handle;
 use AnyEvent::Memcached::Conn;
-use R::Dump;
 use base 'Object::Event';
 use String::CRC32;
 use Storable ();

@@ -3,7 +3,6 @@ package AnyEvent::Memcached::Conn;
 use strict;
 use base 'Object::Event';
 use AnyEvent::Handle;
-use Data::Dumper;
 
 our $NL = "\015\012";
 our $QRNL = qr<\015?\012>;

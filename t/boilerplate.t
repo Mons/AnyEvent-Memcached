@@ -2,8 +2,12 @@
 
 use strict;
 use warnings;
-use Test::More tests => 3;
+use Test::More;
 use lib::abs;
+
+$ENV{TEST_AUTHOR} or plan skip_all => '$ENV{TEST_AUTHOR} not set';
+plan  tests => 3;
+
 my $dist = lib::abs::path('..');
 chdir $dist or plan skip_all => "Can't chdir to $dist: $!";
 

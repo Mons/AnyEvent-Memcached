@@ -2,7 +2,7 @@ NAME
     AnyEvent::Memcached - AnyEvent memcached client
 
 VERSION
-    Version 0.01_1
+    Version 0.01_2
 
 NOTICE
     This is a developer release. Interface is subject to change.

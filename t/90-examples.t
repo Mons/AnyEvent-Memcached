@@ -13,7 +13,8 @@ $@ and plan skip_all => "File::Find required for testing POD";
 plan tests => 1;
 
 my $found = 0;
-opendir my $dir, $dist;
+my $dir;
+opendir $dir, $dist;
 while (defined ( $_ = readdir $dir )) {
 	$found='d', last if -d "$dist/$_" and /^(bin|scripts?|ex|eg|examples?|samples?|demos?)$/;
 	$found='f', last if -f "$dist/$_" and /^(examples?|samples?|demos?)\.p(m|od)$/i;
