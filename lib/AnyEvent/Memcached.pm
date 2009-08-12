@@ -9,7 +9,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =head1 VERSION
 
-Version 0.01_2
+Version 0.01_3
 
 =head1 NOTICE
 
@@ -19,7 +19,7 @@ If you want to rely on some features, please, notify me about them
 
 =cut
 
-our $VERSION = '0.01_2';
+our $VERSION = '0.01_3';
 
 =head1 SYNOPSIS
 

@@ -1,6 +1,7 @@
 use strict;
 use lib::abs '../lib';
 use Test::More;
+use AnyEvent::Impl::Perl;
 use AnyEvent;
 use AnyEvent::Socket;
 use AnyEvent::Memcached;

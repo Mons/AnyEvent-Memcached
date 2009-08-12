@@ -19,5 +19,5 @@ make test && \
 make disttest && \
 make dist && \
 cp -f *.tar.gz dist/ && \
-make distclean && \
+make clean && \
 echo "All is OK"

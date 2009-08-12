@@ -3,9 +3,11 @@ package AnyEvent::Memcached::Conn;
 use strict;
 use base 'Object::Event';
 use AnyEvent::Handle;
+use AnyEvent::Memcached;
 
 our $NL = "\015\012";
 our $QRNL = qr<\015?\012>;
+our $VERSION = $AnyEvent::Memcached::VERSION;
 
 =head2 EVENTS
 	disconnect

@@ -1,0 +1,29 @@
+---
+abstract: 'AnyEvent memcached client'
+author:
+  - 'Mons Anderson <mons@cpan.org>'
+build_requires:
+  ExtUtils::MakeMaker: 6.42
+  Test::More: 0
+  lib::abs: 0.90
+configure_requires:
+  ExtUtils::MakeMaker: 6.42
+distribution_type: module
+generated_by: 'Module::Install version 0.91'
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: AnyEvent-Memcached
+no_index:
+  directory:
+    - examples
+    - inc
+    - t
+requires:
+  AnyEvent: 4.82
+  Object::Event: 1.0
+  String::CRC32: 0
+resources:
+  license: http://dev.perl.org/licenses/
+version: 0.01_2

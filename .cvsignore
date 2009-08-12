@@ -1,4 +1,5 @@
 blib*
+inc*
 Makefile
 Makefile.old
 Build

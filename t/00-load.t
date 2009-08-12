@@ -7,4 +7,4 @@ BEGIN {
 	use_ok( 'AnyEvent::Memcached' );
 }
 
-diag( "Testing AnyEvent::Memcached $AnyEvent::Memcached::VERSION, Perl $], $^X" );
+diag( "Testing AnyEvent::Memcached $AnyEvent::Memcached::VERSION, using AnyEvent $AnyEvent::VERSION, Perl $], $^X" );
