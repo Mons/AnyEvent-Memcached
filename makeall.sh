@@ -15,7 +15,7 @@ $perl -i -lne 'print unless /(?:\.tar\.gz$|^dist|^tmp)/' MANIFEST && \
 make clean && \
 $perl Makefile.PL && \
 make && \
-make test && \
+TEST_AUTHOR=1 make test && \
 make disttest && \
 make dist && \
 cp -f *.tar.gz dist/ && \

@@ -1,5 +1,6 @@
 .cvsignore
 Changes
+examples/test.pl
 inc/Module/AutoInstall.pm
 inc/Module/Install.pm
 inc/Module/Install/AutoInstall.pm
@@ -24,7 +25,6 @@ t/02-usage-memdb.t
 t/90-examples.t
 t/98-fixme.t
 t/99-kwalitee.t
-t/boilerplate.t
 t/check.pl
 t/pod-coverage.t
 t/pod.t
