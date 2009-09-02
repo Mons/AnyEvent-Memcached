@@ -9,7 +9,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =head1 VERSION
 
-Version 0.01_3
+Version 0.01_4
 
 =head1 NOTICE
 
@@ -19,7 +19,7 @@ If you want to rely on some features, please, notify me about them
 
 =cut
 
-our $VERSION = '0.01_3';
+our $VERSION = '0.01_4';
 
 =head1 SYNOPSIS
 
@@ -396,6 +396,15 @@ sub get {
 	$_ and $_->begin for $self->{cv}, $args{cv};
 	$cv->begin(sub {
 		undef $cv;
+		for (values %result) {
+			if ($HAVE_ZLIB and $_->{flags} & F_COMPRESS) {
+				$_->{data} = Compress::Zlib::memGunzip($_->{data});
+			}
+			if ($_->{flags} & F_STORABLE) {
+				eval{ $_->{data} = Storable::thaw($_->{data}); 1 } or delete $_->{data};
+			}
+			$_ = $_->{data};
+		}
 		$args{cb}( $array ? \%result :  $result{ $keys->[0]} );
 		%result = ();
 		$_ and $_->end for $args{cv}, $self->{cv};

@@ -136,7 +136,11 @@ sub reader {
 				#$data = substr($data,0,length($data)-2);
 				$key = substr($key, $cut) if substr($key, 0, $cut) eq $args{namespace};
 				warn "+ received data $key: $data" if $self->{debug};
-				$result->{$key} = $data;#{ data => $data, $cas ? (cas => $cas) : () };
+				$result->{$key} = {
+					data => $data,
+					flags => $flags,
+					$cas ? (cas => $cas) : (),
+				};#{ data => $data, $cas ? (cas => $cas) : () };
 				$self->{h}->unshift_read( line => $reader);
 			});
 		}
