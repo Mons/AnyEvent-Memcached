@@ -102,6 +102,7 @@ Currently supported options:
 =item cv
 =item compress_threshold
 =item compress_enable
+=item timeout
 
 =back
 
@@ -112,7 +113,7 @@ sub new {
 	my %args = @_;
 	$self->set_servers(delete $args{servers});
 	$self->{namespace} = exists $args{namespace} ? delete $args{namespace} : '';
-	for (qw( debug cv compress_threshold compress_enable )) {
+	for (qw( debug cv compress_threshold compress_enable timeout)) {
 		$self->{$_} = exists $args{$_} ? delete $args{$_} : 0;
 	}
 	require Carp; Carp::carp "@{[ keys %args ]} options are not supported yet" if %args;
@@ -208,7 +209,7 @@ sub connect {
 				warn "$peer->{host}:$peer->{port} not connected: $!";
 				$cv->end;
 			}
-		});
+		}, sub { $self->{timeout} });
 	}
 	$cv->end;
 }
