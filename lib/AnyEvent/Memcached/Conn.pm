@@ -145,7 +145,9 @@ sub reader {
 			});
 		}
 		else {
-			$self->handle_errors($_);
+			die "Wrong data received: $_";
+			#$args{cb}(undef,$_);
+			#$self->handle_errors($_);
 		}
 	};
 	$self->{h}->push_read( line => $reader);
