@@ -4,6 +4,8 @@ use strict;
 use base 'Object::Event';
 use AnyEvent::Handle;
 use AnyEvent::Memcached;
+use R::Dump; # TODO: remove
+use Data::Dumper;
 
 our $NL = "\015\012";
 our $QRNL = qr<\015?\012>;
@@ -122,16 +124,21 @@ sub reader {
 	my $cut = exists $args{namespace} ? length $args{namespace} : 0;
 	my $reader;$reader = sub {
 		shift;
-		local $_ = shift;
+		defined( local $_ = shift ) or return $args{cb}(undef,@_);
 		warn "<<$args{id} $_" if $self->{debug};
 		if ($_ eq "END") {
 			undef $reader;
 			$args{cb}( $result );
 		}
+		elsif (!length) {
+			warn "Skip empty line";
+			#exit 0;
+			$self->{h}->unshift_read( line => $reader);
+		}
 		elsif( /^VALUE (\S+) (\d+) (\d+)(?:| (.+))$/ ) {
 			my ($key,$flags,$cas) = ($1,$2,$4);
 			#warn "have to read $1 $2 $3 $4";
-			$self->recv( $3 => cb => sub {
+			$self->recv( $3+2 => cb => sub {
 				#shift;
 				my $data = shift;
 				#$data = substr($data,0,length($data)-2);
@@ -146,7 +153,7 @@ sub reader {
 			});
 		}
 		else {
-			die "Wrong data received: $_";
+			die "Wrong data received: ".Dumper($_)."($!)";
 			#$args{cb}(undef,$_);
 			#$self->handle_errors($_);
 		}
