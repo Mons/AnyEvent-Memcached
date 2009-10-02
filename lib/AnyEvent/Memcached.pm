@@ -412,8 +412,9 @@ sub get {
 	});
 	for my $peer (keys %peers) {
 		$cv->begin;
-		$self->{peers}{$peer}{con}->request( "get ".join(' ',map "$self->{namespace}$_", @{ $peers{$peer} }));
-		$self->{peers}{$peer}{con}->reader( id => $peer, res => \%result, namespace => $self->{namespace}, cb => sub {
+		my $keys = join(' ',map "$self->{namespace}$_", @{ $peers{$peer} });
+		$self->{peers}{$peer}{con}->request( "get $keys" );
+		$self->{peers}{$peer}{con}->reader( id => $peer.'+'.$keys, res => \%result, namespace => $self->{namespace}, cb => sub {
 			$cv->end;
 		});
 	}

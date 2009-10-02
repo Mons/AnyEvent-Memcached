@@ -58,6 +58,7 @@ sub close {
 sub command {
 	my $self = shift;
 	my $write = shift;
+	utf8::encode($write) if utf8::is_utf8($write);
 	my %args = @_;
 	$args{cb} or return $self->event( error => "no cb for command at @{[ (caller)[1,2] ]}" );
 	$self->{h} or return $args{cb}->(undef,"Not connected");
