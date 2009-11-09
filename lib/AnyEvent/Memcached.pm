@@ -1,7 +1,8 @@
 package AnyEvent::Memcached;
 
-use warnings;
-use strict;
+use common::sense;
+use Devel::Leak::Cb;
+use AnyEvent::Memcached::Peer;
 
 =head1 NAME
 
@@ -9,7 +10,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =head1 VERSION
 
-Version 0.01_4
+Version 0.01_6
 
 =head1 NOTICE
 
@@ -19,7 +20,7 @@ If you want to rely on some features, please, notify me about them
 
 =cut
 
-our $VERSION = '0.01_4';
+our $VERSION = '0.01_6';
 
 =head1 SYNOPSIS
 
@@ -67,6 +68,7 @@ our $VERSION = '0.01_4';
 use AnyEvent;
 use AnyEvent::Socket;
 use AnyEvent::Handle;
+use AnyEvent::Connection;
 use AnyEvent::Memcached::Conn;
 use base 'Object::Event';
 use String::CRC32;
@@ -116,6 +118,7 @@ sub new {
 	for (qw( debug cv compress_threshold compress_enable timeout)) {
 		$self->{$_} = exists $args{$_} ? delete $args{$_} : 0;
 	}
+	$self->{compress_enable} and !$HAVE_ZLIB and Carp::carp("Have no Compress::Zlib installed, but have compress_enable option");
 	require Carp; Carp::carp "@{[ keys %args ]} options are not supported yet" if %args;
 	$self;
 }
@@ -164,6 +167,19 @@ sub _init_buckets {
 		};
 	}
 	$self->{bucketcount} = scalar @{$self->{buckets}};
+	$self->_create_connections;
+}
+
+sub _create_connections {
+	my $self = shift;
+	for my $peer ( values %{ $self->{peers} }) {
+		$peer->{con} = AnyEvent::Memcached::Peer->new(
+			port      => $peer->{port},
+			host      => $peer->{host},
+			timeout   => $self->{timeout},
+			debug     => $self->{debug},
+		);
+	}
 }
 
 =head2 connect
@@ -174,44 +190,8 @@ sub _init_buckets {
 
 sub connect {
 	my $self = shift;
-	if (@_) {
-		#warn "@_; $_[-1]{cv}";
-		$_[-1]{cv}->begin if $_[-1]{cv};
-		$self->{cv}->begin if $self->{cv};
-		push @{ $self->{connqueue} ||= [] }, \@_;
-	}
-	return if $self->{connecting};
-	my $cv = AnyEvent->condvar;
-	$self->{connecting} = 1;
-	$cv->begin(sub {
-		undef $cv;
-		$self->{connected} = 1;
-		$self->{connecting} = 0;
-		$self->event( connected => ());
-		for (@{ $self->{connqueue} }) {
-			my $method = shift @$_;
-			my $args = pop @$_;
-			$self->$method(@$_,%$args);
-			$args->{cv}->end if $args->{cv};
-			$self->{cv}->end if $self->{cv};
-			undef $args;
-		}
-	});
-	for my $peer ( values %{ $self->{peers} }) {
-		warn "Connecting to $peer->{host}, $peer->{port}" if $self->{debug} > 1;
-		$cv->begin;
-		AnyEvent::Socket::tcp_connect( $peer->{host}, $peer->{port}, sub {
-			if ( my $fh = shift ) {
-				warn "$peer->{host}:$peer->{port} connected" if $self->{debug} > 1;
-				$peer->{con} = AnyEvent::Memcached::Conn->new( fh => $fh, debug => $self->{debug} );
-				$cv->end;
-			} else {
-				warn "$peer->{host}:$peer->{port} not connected: $!";
-				$cv->end;
-			}
-		}, sub { $self->{timeout} });
-	}
-	$cv->end;
+	$_->{con}->connect
+		for values %{ $self->{peers} };
 }
 
 sub _handle_errors {
@@ -245,7 +225,6 @@ sub _set {
 	my $key = shift;
 	my $val = shift;
 	my %args = @_;
-	$self->{connected} or return $self->connect( $cmd => $key,$val,\%args );
 	return $args{cb}(undef, "Readonly") if $self->{readonly};
 	$_ and $_->begin for $self->{cv}, $args{cv};
 	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
@@ -279,19 +258,23 @@ sub _set {
 
 	$self->{peers}{$peer}{con}->command(
 		"$cmd $self->{namespace}$key $flags $expire $len\015\012$val",
-		cb => sub {
-			local $_ = shift;
-			if ($_ eq 'STORED') {
-				$args{cb}(1);
-			}
-			elsif ($_ eq 'NOT_STORED') {
-				$args{cb}(0);
-			}
-			elsif ($_ eq 'EXISTS') {
-				$args{cb}(0);
-			}
-			else {
-				$args{cb}(undef,$_);
+		cb => cb {
+			if (defined( local $_ = shift )) {
+				if ($_ eq 'STORED') {
+					$args{cb}(1);
+				}
+				elsif ($_ eq 'NOT_STORED') {
+					$args{cb}(0);
+				}
+				elsif ($_ eq 'EXISTS') {
+					$args{cb}(0);
+				}
+				else {
+					$args{cb}(undef,$_);
+				}
+			} else {
+				warn "set failed: @_/$!";
+				$args{cb}(undef, @_);
 			}
 			$_ and $_->end for $args{cv}, $self->{cv};
 		}
@@ -371,12 +354,27 @@ B<NOT IMPLEMENTED YET>
 
 =cut
 
+sub _deflate {
+	my $self = shift;
+	my $result = shift;
+	for (values %$result) {
+		if ($HAVE_ZLIB and $_->{flags} & F_COMPRESS) {
+			$_->{data} = Compress::Zlib::memGunzip($_->{data});
+		}
+		if ($_->{flags} & F_STORABLE) {
+			eval{ $_->{data} = Storable::thaw($_->{data}); 1 } or delete $_->{data};
+		}
+		$_ = $_->{data};
+	}
+	return;
+}
+
 sub get {
 	my $self = shift;
 	my ($cmd) = (caller(0))[3] =~ /([^:]+)$/;
 	my $keys = shift;
 	my %args = @_;
-	$self->{connected} or return $self->connect( $cmd => $keys, \%args );
+	#$self->{connected} or return $self->connect( $cmd => $keys, \%args );
 	my $array;
 	if (ref $keys and ref $keys eq 'ARRAY') {
 		$array = 1;
@@ -395,17 +393,9 @@ sub get {
 	my %result;
 	my $cv = AnyEvent->condvar;
 	$_ and $_->begin for $self->{cv}, $args{cv};
-	$cv->begin(sub {
+	$cv->begin(cb {
 		undef $cv;
-		for (values %result) {
-			if ($HAVE_ZLIB and $_->{flags} & F_COMPRESS) {
-				$_->{data} = Compress::Zlib::memGunzip($_->{data});
-			}
-			if ($_->{flags} & F_STORABLE) {
-				eval{ $_->{data} = Storable::thaw($_->{data}); 1 } or delete $_->{data};
-			}
-			$_ = $_->{data};
-		}
+		$self->_deflate(\%result);
 		$args{cb}( $array ? \%result :  $result{ $keys->[0]} );
 		%result = ();
 		$_ and $_->end for $args{cv}, $self->{cv};
@@ -414,7 +404,7 @@ sub get {
 		$cv->begin;
 		my $keys = join(' ',map "$self->{namespace}$_", @{ $peers{$peer} });
 		$self->{peers}{$peer}{con}->request( "get $keys" );
-		$self->{peers}{$peer}{con}->reader( id => $peer.'+'.$keys, res => \%result, namespace => $self->{namespace}, cb => sub {
+		$self->{peers}{$peer}{con}->reader( id => $peer.'+'.$keys, res => \%result, namespace => $self->{namespace}, cb => cb {
 			$cv->end;
 		});
 	}
@@ -443,7 +433,6 @@ sub delete {
 	my ($cmd) = (caller(0))[3] =~ /([^:]+)$/;
 	my $key = shift;
 	my %args = @_;
-	$self->{connected} or return $self->connect( $cmd => $key,\%args );
 	return $args{cb}(undef, "Readonly") if $self->{readonly};
 	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
 	my $time = $args{delay} ? " $args{delay}" : '';
@@ -454,14 +443,17 @@ sub delete {
 		$_ and $_->begin for $self->{cv}, $args{cv};
 		$self->{peers}{$peer}{con}->command(
 			"delete $self->{namespace}$key$time",
-			cb => sub {
-				local $_ = shift;
-				if ($_ eq 'DELETED') {
-					$args{cb}(1);
-				} elsif ($_ eq 'NOT_FOUND') {
-					$args{cb}(0);
+			cb => cb {
+				if (defined( local $_ = shift )) {
+					if ($_ eq 'DELETED') {
+						$args{cb}(1);
+					} elsif ($_ eq 'NOT_FOUND') {
+						$args{cb}(0);
+					} else {
+						$args{cb}(undef,$_);
+					}
 				} else {
-					$args{cb}(undef,$_);
+					$args{cb}(undef, @_);
 				}
 				$_ and $_->end for $args{cv}, $self->{cv};
 			}
@@ -493,7 +485,6 @@ sub incr {
 	my $key = shift;
 	my $val = shift;
 	my %args = @_;
-	$self->{connected} or return $self->connect( $cmd => $key,$val,\%args );
 	return $args{cb}(undef, "Readonly") if $self->{readonly};
 	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
 	if ($args{noreply}) {
@@ -503,16 +494,19 @@ sub incr {
 		$_ and $_->begin for $self->{cv}, $args{cv};
 		$self->{peers}{$peer}{con}->command(
 			"$cmd $self->{namespace}$key $val",
-			cb => sub {
-				local $_ = shift;
-				if ($_ eq 'NOT_FOUND') {
-					$args{cb}(undef);
-				}
-				elsif( /^(\d+)$/ ) {
-					$args{cb}($1 eq '0' ? '0E0' : $1);
-				}
-				else {
-					$args{cb}(undef,$_);
+			cb => cb {
+				if (defined( local $_ = shift )) {
+					if ($_ eq 'NOT_FOUND') {
+						$args{cb}(undef);
+					}
+					elsif( /^(\d+)$/ ) {
+						$args{cb}($1 eq '0' ? '0E0' : $1);
+					}
+					else {
+						$args{cb}(undef,$_);
+					}
+				} else {
+					$args{cb}(undef, @_);
 				}
 				$_ and $_->end for $args{cv}, $self->{cv};
 			}
@@ -569,7 +563,6 @@ sub rget {
 	my $from = shift;
 	my $till = shift;
 	my %args = @_;
-	$self->{connected} or return $self->connect( $cmd => $from,$till,\%args );
 	my ($lkey,$rkey);
 	$lkey = exists $args{'+left'}  ? $args{'+left'}  ? 0 : 1 : 0;
 	$rkey = exists $args{'+right'} ? $args{'+right'} ? 0 : 1 : 0;
@@ -582,13 +575,13 @@ sub rget {
 	$_ and $_->begin for $self->{cv}, $args{cv};
 	$cv->begin(sub {
 		undef $cv;
+		$self->_deflate(\%result);
 		$args{cb}( $err ? (undef,$err) : \%result );
 		%result = ();
 		$_ and $_->end for $args{cv}, $self->{cv};
 	});
 
 	# TODO: peers ?
-
 	for my $peer (keys %{$self->{peers}}) {
 		$cv->begin;
 		my $do;$do = sub {
@@ -625,6 +618,30 @@ sub rget {
 	}
 	$cv->end;
 	return;
+}
+
+=head2 destroy
+
+Shutdown object as much, as possible, incl cleaning of incapsulated objects
+
+=cut
+
+sub AnyEvent::Memcached::destroyed::AUTOLOAD {}
+
+sub destroy {
+	my $self = shift;
+	$self->DESTROY;
+	bless $self, "AnyEvent::Memcached::destroyed";
+}
+
+sub DESTROY {
+	my $self = shift;
+	warn "(".int($self).") Destroying AE:MC" if $self->{debug};
+	for (values %{$self->{peers}}) {
+		$_->{con} and $_->{con}->destroy;
+	}
+	# TODO
+	%$self = ();
 }
 
 =head1 BUGS

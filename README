@@ -2,7 +2,7 @@ NAME
     AnyEvent::Memcached - AnyEvent memcached client
 
 VERSION
-    Version 0.01_3
+    Version 0.01_6
 
 NOTICE
     This is a developer release. Interface is subject to change.
@@ -54,7 +54,7 @@ METHODS
     Currently supported options:
 
     servers =item namespace =item debug =item cv =item compress_threshold
-    =item compress_enable
+    =item compress_enable =item timeout
 
   set_servers
         Setup server list
@@ -153,6 +153,10 @@ METHODS
 
     max Maximum number of results to fetch. 100 is the maximum and is the
         default
+
+  destroy
+    Shutdown object as much, as possible, incl cleaning of incapsulated
+    objects
 
 BUGS
     Since there is developer release, there may be a lot of bugs

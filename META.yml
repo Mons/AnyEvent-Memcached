@@ -21,9 +21,12 @@ no_index:
     - inc
     - t
 requires:
-  AnyEvent: 4.82
-  Object::Event: 1.0
+  AnyEvent: 5.0
+  AnyEvent::Connection: 0.02
+  Devel::Leak::Cb: 0
+  Object::Event: 1.101
+  Storable: 0
   String::CRC32: 0
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.01_4
+version: 0.01_6

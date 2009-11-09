@@ -7,8 +7,10 @@ use AnyEvent::Socket;
 use AnyEvent::Memcached;
 
 our $testaddr;
-my ($host,$port) = split ':',$testaddr;
+my ($host,$port) = split ':',$testaddr;$host ||= '127.0.0.1'; # allow *_SERVER=:port
+$testaddr = join ':', $host,$port;
 
+alarm 10;
 my $cv = AnyEvent->condvar;
 $cv->begin(sub { $cv->send });
 
@@ -22,16 +24,16 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 	my $memd = AnyEvent::Memcached->new(
 		servers   => [ $testaddr ],
 		cv        => $cv,
-		# debug     => 1,
+		debug     => 0,
 		namespace => "AE::Memd::t/$$/" . (time() % 100) . "/",
 	);
 
 	isa_ok($memd, 'AnyEvent::Memcached');
 
 	$memd->set("key1", "val1", cb => sub {
-		ok(shift,"set key1 as val1");
+		ok(shift,"set key1 as val1") or diag "  Error: @_";
 		$memd->get("key1", cb => sub {
-			is(shift, "val1", "get key1 is val1") or diag "@_";
+			is(shift, "val1", "get key1 is val1") or diag "  Error: @_";
 			$memd->add("key1", "val-replace", cb => sub {
 				ok(! shift, "add key1 properly failed");
 				$memd->add("key2", "val2", cb => sub {
