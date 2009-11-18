@@ -1,5 +1,11 @@
 Revision history for AnyEvent-Memcached
 
+0.01_7  2009-11-19
+        * Make hashing pluggable, add alternative hashing algorithm
+        * Separate noreply commands in another connection
+        * Some generalizations for pluggable hashing
+        * Fixed decr (decr worked as incr)
+
 0.01    Date/time
         First version, released on an unsuspecting world.
 

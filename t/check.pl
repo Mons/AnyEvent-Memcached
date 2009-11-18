@@ -2,34 +2,37 @@ use strict;
 use lib::abs '../lib';
 use Test::More;
 use AnyEvent::Impl::Perl;
-use AnyEvent;
+use AnyEvent 5;
 use AnyEvent::Socket;
 use AnyEvent::Memcached;
 
 our $testaddr;
+our $noreply;
 my ($host,$port) = split ':',$testaddr;$host ||= '127.0.0.1'; # allow *_SERVER=:port
 $testaddr = join ':', $host,$port;
 
 alarm 10;
-my $cv = AnyEvent->condvar;
-$cv->begin(sub { $cv->send });
+my $cv;$cv = AE::cv { $cv->send; };
+#my $cv = AnyEvent->condvar;
+#$cv->begin(sub { $cv->send });
 
 $cv->begin;
 my $cg;$cg = tcp_connect $host,$port, sub {
 	undef $cg;
 	@_ or plan skip_all => "No memcached instance running at $testaddr\n";
 	diag "testing $testaddr";
-	plan tests => 18;
+	plan tests => 21;
 
 	my $memd = AnyEvent::Memcached->new(
 		servers   => [ $testaddr ],
 		cv        => $cv,
 		debug     => 0,
+		noreply   => $noreply,
 		namespace => "AE::Memd::t/$$/" . (time() % 100) . "/",
 	);
 
 	isa_ok($memd, 'AnyEvent::Memcached');
-
+#=for rem
 	$memd->set("key1", "val1", cb => sub {
 		ok(shift,"set key1 as val1") or diag "  Error: @_";
 		$memd->get("key1", cb => sub {
@@ -89,13 +92,32 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 			});
 		});
 	});
-	#=cut
+#=cut
 	$memd->replace("key-noexist", "bogus", cb => sub {
 		ok(!shift , "replace key-noexist properly failed");
+	});
+	my $need;
+	$memd->set("ikey", $need = 3, cb => sub {
+		ok(shift,"set ikey as 3") or diag "  Error: @_";
+		#$memd->incr(ikey => 1, noreply => 1) and warn("norply ok"), ++$need;
+		$memd->incr(ikey => 1, cb => sub {
+			++$need;
+			my $igot = shift;
+			is $igot, $need, 'incr ikey = '.$igot or diag "  Error: @_";
+			$need = $igot-2;
+			#$memd->decr(ikey => 2, noreply => 1);# or $need -= 2;
+			$memd->decr(ikey => 2, cb => sub {
+				my $dgot = shift;
+				is $dgot, $need, 'decr ikey = '.$dgot or diag "  Error: @_";
+				$memd->get('ikey', cb => sub {
+					diag "get after incr/decr = ".shift;
+				});
+			});
+		});
 	});
 
 	$cv->end; #connect
 }, sub { 1 };
 
-$cv->end;
+#$cv->end;
 $cv->recv;

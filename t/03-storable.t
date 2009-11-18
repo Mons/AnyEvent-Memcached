@@ -25,7 +25,7 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 	plan tests => 3;
 
 	my $memd = AnyEvent::Memcached->new(
-		servers   => [ $testaddr ],
+		servers   => $testaddr,
 		cv        => $cv,
 		debug     => 0,
 		namespace => "AE::Memd::t/$$/" . (time() % 100) . "/",

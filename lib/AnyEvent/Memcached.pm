@@ -1,8 +1,11 @@
 package AnyEvent::Memcached;
 
 use common::sense;
+use Carp;
 use Devel::Leak::Cb;
 use AnyEvent::Memcached::Peer;
+use AnyEvent::Memcached::Hash;
+use AnyEvent::Memcached::Buckets;
 
 =head1 NAME
 
@@ -10,7 +13,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =head1 VERSION
 
-Version 0.01_6
+Version 0.01_7
 
 =head1 NOTICE
 
@@ -20,7 +23,7 @@ If you want to rely on some features, please, notify me about them
 
 =cut
 
-our $VERSION = '0.01_6';
+our $VERSION = '0.01_7';
 
 =head1 SYNOPSIS
 
@@ -105,6 +108,9 @@ Currently supported options:
 =item compress_threshold
 =item compress_enable
 =item timeout
+=item noreply
+
+If true, additional connection will established for noreply commands. Beware, feature is under development and may be unstable
 
 =back
 
@@ -113,11 +119,14 @@ Currently supported options:
 sub new {
 	my $self = bless {}, shift;
 	my %args = @_;
-	$self->set_servers(delete $args{servers});
 	$self->{namespace} = exists $args{namespace} ? delete $args{namespace} : '';
-	for (qw( debug cv compress_threshold compress_enable timeout)) {
+	for (qw( debug cv compress_threshold compress_enable timeout noreply)) {
 		$self->{$_} = exists $args{$_} ? delete $args{$_} : 0;
 	}
+	$self->{_bucker} = $args{bucker} || 'AnyEvent::Memcached::Buckets';
+	$self->{_hasher} = $args{hasher} || 'AnyEvent::Memcached::Hash';
+
+	$self->set_servers(delete $args{servers});
 	$self->{compress_enable} and !$HAVE_ZLIB and Carp::carp("Have no Compress::Zlib installed, but have compress_enable option");
 	require Carp; Carp::carp "@{[ keys %args ]} options are not supported yet" if %args;
 	$self;
@@ -132,54 +141,30 @@ sub new {
 sub set_servers {
 	my $self = shift;
 	my $list = shift;
-	$list = [$list] unless ref $list eq 'ARRAY';
-	$self->{servers} = $list || [];
-	$self->{active}  = 0+@{$self->{servers}};
-	$self->{buckets} = undef;
-	$self->{bucketcount} = 0;
-	$self->_init_buckets;
-	@{$self->{buck2sock}} = ();
-
-	$self->{'_single_sock'} = undef;
-	if (@{$self->{'servers'}} == 1) {
-		$self->{'_single_sock'} = $self->{'servers'}[0];
-	}
-
-	return $self;
-}
-
-sub _init_buckets {
-	my $self = shift;
-	return if $self->{buckets};
-	my $bu = $self->{buckets} = [];
-	foreach my $v (@{$self->{servers}}) {
-		my $peer;
-		if (ref $v eq "ARRAY") {
-			$peer = $v->[0];
-			for (1..$v->[1]) { push @$bu, $v->[0]; }
-		} else {
-			push @$bu, $peer = $v;
-		}
-		my ($host,$port) = $peer =~ /^(.+?)(?:|:(\d+))$/;
-		$self->{peers}{$peer} = {
-			host => $host,
-			port => $port,
-		};
-	}
-	$self->{bucketcount} = scalar @{$self->{buckets}};
-	$self->_create_connections;
-}
-
-sub _create_connections {
-	my $self = shift;
-	for my $peer ( values %{ $self->{peers} }) {
+	my $buckets = $self->{_bucker}->new(servers => $list);
+	#warn R::Dump($list, $buckets);
+	$self->{hash} = $self->{_hasher}->new(buckets => $buckets);
+	$self->{peers} = 
+	my $peers = $buckets->peers;
+	for my $peer ( values %{ $peers } ) {
 		$peer->{con} = AnyEvent::Memcached::Peer->new(
 			port      => $peer->{port},
 			host      => $peer->{host},
 			timeout   => $self->{timeout},
 			debug     => $self->{debug},
 		);
+		# Noreply connection
+		if ($self->{noreply}) {
+			$peer->{nrc} = AnyEvent::Memcached::Peer->new(
+				port      => $peer->{port},
+				host      => $peer->{host},
+				timeout   => $self->{timeout},
+				debug     => $self->{debug} || 1,
+			);
+			# TODO: setup delayed on_read callback to check for errors
+		}
 	}
+	return $self;
 }
 
 =head2 connect
@@ -212,11 +197,96 @@ sub _handle_errors {
 sub _p4k {
 	my $self = shift;
 	my $key = shift;
+	die "Should not be used (_p4k) at @{[ (caller)[1,2] ]}\n";
 	my ($hv, $real_key) = ref $key ?
 		(int($key->[0]), $key->[1]) :
 		(_hash($key),    $key);
 	my $bucket = $hv % $self->{bucketcount};
 	return wantarray ? ( $self->{buckets}[$bucket], $real_key ) : $self->{buckets}[$bucket];
+}
+
+sub _do {
+	my $self    = shift;
+	my $key     = shift;
+	my $command = shift;
+	my $worker  = shift; # CODE
+	my %args    = @_;
+	my $servers = $self->{hash}->servers($key);
+	my %res;
+	my %err;
+	my $res;
+	if ($args{noreply} and !$self->{noreply}) {
+		if (!$args{cb}) {
+			carp "Noreply option not set, but noreply command requested. command ignored";
+			return 0;
+		} else {
+			carp "Noreply option not set, but noreply command requested. fallback to common command";
+		}
+		delete $args{noreply};
+	}
+	if ($args{noreply}) {
+		for my $srv ( keys %$servers ) {
+			for my $real (@{ $servers->{$srv} }) {
+				my $cmd = sprintf($command, $real).' noreply';
+				$self->{peers}{$srv}{nrc}->request($cmd);
+				$self->{peers}{$srv}{lastnr} = $cmd;
+				unless ($self->{peers}{$srv}{nrc}->handles('command')) {
+					$self->{peers}{$srv}{nrc}->reg_cb(command => cb {
+						shift;
+						warn "Got data from $srv noreply connection (while shouldn't): @_\nLast noreply command was $self->{peers}{$srv}{lastnr}\n";
+					});
+					$self->{peers}{$srv}{nrc}->want_command();
+				}
+			}
+		}
+		$args{cb}(1) if $args{cb};
+		return 1;
+	}
+	$_ and $_->begin for $self->{cv}, $args{cv};
+	my $cv = AE::cv {
+		use Data::Dumper;
+		#warn Dumper $res,\%res,\%err;
+		if ($res != -1) {
+			$args{cb}($res);
+		}
+		elsif (!%err) {
+			warn "-1 while not err";
+			$args{cb}($res{$key});
+		}
+		else {
+			$args{cb}(undef, Dumper($err{$key}));
+		}
+		#warn "cv end";
+		
+		$_ and $_->end for $args{cv}, $self->{cv};
+	};
+	for my $srv ( keys %$servers ) {
+		for my $real (@{ $servers->{$srv} }) {
+			$cv->begin;
+			my $cmd = sprintf $command, $real;
+			$self->{peers}{$srv}{con}->command(
+				$cmd,
+				cb => cb {
+					if (defined( local $_ = shift )) {
+						my ($ok,$fail) = $worker->($_);
+						if (defined $ok) {
+							$res{$real}{$srv} = $ok;
+							$res = (!defined $res ) || $res == $ok ? $ok : -1;
+						} else {
+							$err{$real}{$srv} = $fail;
+							$res = -1;
+						}
+					} else {
+						warn "do failed: @_/$!";
+						$err{$real}{$srv} = $_;
+						$res = -1;
+					}
+					$cv->end;
+				}
+			);
+		}
+	}
+	return;
 }
 
 sub _set {
@@ -226,8 +296,8 @@ sub _set {
 	my $val = shift;
 	my %args = @_;
 	return $args{cb}(undef, "Readonly") if $self->{readonly};
-	$_ and $_->begin for $self->{cv}, $args{cv};
-	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
+	#warn "cv begin";
+	#(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
 
 	use bytes; # return bytes from length()
 
@@ -255,30 +325,77 @@ sub _set {
 	}
 
 	my $expire = int($args{expire} || 0);
-
-	$self->{peers}{$peer}{con}->command(
-		"$cmd $self->{namespace}$key $flags $expire $len\015\012$val",
-		cb => cb {
-			if (defined( local $_ = shift )) {
-				if ($_ eq 'STORED') {
-					$args{cb}(1);
-				}
-				elsif ($_ eq 'NOT_STORED') {
-					$args{cb}(0);
-				}
-				elsif ($_ eq 'EXISTS') {
-					$args{cb}(0);
-				}
-				else {
-					$args{cb}(undef,$_);
-				}
-			} else {
-				warn "set failed: @_/$!";
-				$args{cb}(undef, @_);
-			}
-			$_ and $_->end for $args{cv}, $self->{cv};
-		}
+	return $self->_do(
+		$key,
+		"$cmd $self->{namespace}%s $flags $expire $len\015\012$val",
+		cb {
+			local $_ = shift;
+			if    ($_ eq 'STORED')     { return 1 }
+			elsif ($_ eq 'NOT_STORED') { return 0 }
+			elsif ($_ eq 'EXISTS')     { return 0 }
+			else                       { return undef, $_ }
+		},
+		cb => $args{cb},
 	);
+	$_ and $_->begin for $self->{cv}, $args{cv};
+	my $servers = $self->{hash}->servers($key);
+	my %res;
+	my %err;
+	my $res;
+	my $cv = AE::cv {
+		use Data::Dumper;
+		warn Dumper $res,\%res,\%err;
+		if ($res != -1) {
+			$args{cb}($res);
+		}
+		elsif (!%err) {
+			warn "-1 while not err";
+			$args{cb}($res{$key});
+		}
+		else {
+			$args{cb}(undef, Dumper($err{$key}));
+		}
+		warn "cv end";
+		
+		$_ and $_->end for $args{cv}, $self->{cv};
+	};
+	for my $srv ( keys %$servers ) {
+		# ??? Can hasher return more than one key for single key passed?
+		# If no, need to remove this inner loop
+		#warn "server for $key = $srv, $self->{peers}{$srv}";
+		for my $real (@{ $servers->{$srv} }) {
+			$cv->begin;
+			$self->{peers}{$srv}{con}->command(
+				"$cmd $self->{namespace}$real $flags $expire $len\015\012$val",
+				cb => cb {
+					if (defined( local $_ = shift )) {
+						if ($_ eq 'STORED') {
+							$res{$real}{$srv} = 1;
+							$res = (!defined $res)||$res == 1 ? 1 : -1;
+						}
+						elsif ($_ eq 'NOT_STORED') {
+							$res{$real}{$srv} = 0;
+							$res = (!defined $res)&&$res == 0 ? 0 : -1;
+						}
+						elsif ($_ eq 'EXISTS') {
+							$res{$real}{$srv} = 0;
+							$res = (!defined $res)&&$res == 0 ? 0 : -1;
+						}
+						else {
+							$err{$real}{$srv} = $_;
+							$res = -1;
+						}
+					} else {
+						warn "set failed: @_/$!";
+						#$args{cb}(undef, @_);
+						$err{$real}{$srv} = $_;
+						$res = -1;
+					}
+					$cv->end;
+				}
+			);
+		}
+	}
 	return;
 }
 
@@ -378,37 +495,27 @@ sub get {
 	my $array;
 	if (ref $keys and ref $keys eq 'ARRAY') {
 		$array = 1;
-	} else {
-		$keys = [$keys];
-	}
-	my $bcount = $self->{bucketcount};
-
-	my %peers;
-	for my $key (@$keys) {
-		my ($peer,$real_key) = $self->_p4k($key);
-		#warn "$peer, $real_key | $self->{peers}{$peer}";
-		push @{ $peers{$peer} ||= [] }, $real_key;
 	}
 	
-	my %result;
-	my $cv = AnyEvent->condvar;
 	$_ and $_->begin for $self->{cv}, $args{cv};
-	$cv->begin(cb {
-		undef $cv;
-		$self->_deflate(\%result);
-		$args{cb}( $array ? \%result :  $result{ $keys->[0]} );
-		%result = ();
+	my $servers = $self->{hash}->servers($keys, for => 'get');
+	my %res;
+	my $cv = AE::cv {
+		$self->_deflate(\%res);
+		#use Data::Dumper;
+		#warn Dumper \%res;
+		$args{cb}( $array ? \%res :  $res{ $keys } );
 		$_ and $_->end for $args{cv}, $self->{cv};
-	});
-	for my $peer (keys %peers) {
+	};
+	for my $srv ( keys %$servers ) {
+		#warn "server for $key = $srv, $self->{peers}{$srv}";
 		$cv->begin;
-		my $keys = join(' ',map "$self->{namespace}$_", @{ $peers{$peer} });
-		$self->{peers}{$peer}{con}->request( "get $keys" );
-		$self->{peers}{$peer}{con}->reader( id => $peer.'+'.$keys, res => \%result, namespace => $self->{namespace}, cb => cb {
+		my $keys = join(' ',map "$self->{namespace}$_", @{ $servers->{$srv} });
+		$self->{peers}{$srv}{con}->request( "get $keys" );
+		$self->{peers}{$srv}{con}->reader( id => $srv.'+'.$keys, res => \%res, namespace => $self->{namespace}, cb => cb {
 			$cv->end;
 		});
 	}
-	$cv->end;
 	return;
 }
 
@@ -434,8 +541,21 @@ sub delete {
 	my $key = shift;
 	my %args = @_;
 	return $args{cb}(undef, "Readonly") if $self->{readonly};
-	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
 	my $time = $args{delay} ? " $args{delay}" : '';
+	return $self->_do(
+		$key,
+		"delete $self->{namespace}%s$time",
+		cb {
+			local $_ = shift;
+			if    ($_ eq 'DELETED')    { return 1 }
+			elsif ($_ eq 'NOT_FOUND')  { return 0 }
+			else                       { return undef, $_ }
+		},
+		cb => $args{cb},
+		noreply => $args{noreply},
+	);
+	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
+
 	if ($args{noreply}) {
 		$self->{peers}{$peer}{con}->request("delete $self->{namespace}$key noreply");
 		$args{cb}(1) if $args{cb};
@@ -479,13 +599,25 @@ Opposite to C<incr>
 
 =cut
 
-sub incr {
+sub _delta {
 	my $self = shift;
-	my ($cmd) = (caller(0))[3] =~ /([^:]+)$/;
+	my ($cmd) = (caller(1))[3] =~ /([^:]+)$/;
 	my $key = shift;
 	my $val = shift;
 	my %args = @_;
 	return $args{cb}(undef, "Readonly") if $self->{readonly};
+	return $self->_do(
+		$key,
+		"$cmd $self->{namespace}%s $val",
+		cb {
+			local $_ = shift;
+			if    ($_ eq 'NOT_FOUND')  { return 0 }
+			elsif (/^(\d+)$/)          { return $1 eq '0' ? '0E0' : $_ }
+			else                       { return undef, $_ }
+		},
+		cb => $args{cb},
+		noreply => $args{noreply},
+	);
 	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
 	if ($args{noreply}) {
 		$self->{peers}{$peer}{con}->request("$cmd $self->{namespace}$key $val noreply");
@@ -514,7 +646,8 @@ sub incr {
 	}
 	return;
 }
-*decr = \&incr;
+sub incr { shift->_delta(@_) }
+sub decr { shift->_delta(@_) }
 
 #rget <start key> <end key> <left openness flag> <right openness flag> <max items>\r\n
 #

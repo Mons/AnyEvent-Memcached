@@ -124,4 +124,16 @@ sub reader {
 	
 }
 
+sub want_command {
+	my $self = shift;
+	warn "wanting command";
+	if ($self->{connected}) {
+		return $self->{con}->want_command(@_);
+	}
+	else {
+		my %args = @_;
+		$self->conntrack( want_command => \@_ );
+	}
+}
+
 1;
