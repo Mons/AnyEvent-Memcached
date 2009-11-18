@@ -11,7 +11,7 @@ use Cache::Memcached;
 #use Devel::Leak::Object 'GLOBAL_bless';
 #use Devel::LeakTrace;
 
-$0 = 'atom stream test client using anyevent';
+$0 = 'memcached test client using anyevent';
 
 my $cv = AnyEvent->condvar;
 $SIG{INT} = sub { $cv->send };
