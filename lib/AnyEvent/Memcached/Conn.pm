@@ -1,6 +1,9 @@
 package AnyEvent::Memcached::Conn;
 
-use common::sense;
+use common::sense 2;m{
+use strict;
+use warnings;
+}x;
 use base 'AnyEvent::Connection::Raw';
 use AnyEvent::Memcached;
 use AnyEvent::Connection::Util;

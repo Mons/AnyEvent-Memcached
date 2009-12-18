@@ -1,6 +1,9 @@
 package AnyEvent::Memcached::Buckets;
 
-use common::sense 2;
+use common::sense 2;m{
+use strict;
+use warnings;
+}x;
 use Carp;
 
 sub new {

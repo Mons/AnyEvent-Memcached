@@ -1,5 +1,8 @@
 Revision history for AnyEvent-Memcached
 
+0.02    2009-12-18
+        * First non-dev release
+
 0.01_7  2009-11-19
         * Make hashing pluggable, add alternative hashing algorithm
         * Separate noreply commands in another connection

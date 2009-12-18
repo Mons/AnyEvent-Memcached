@@ -6,7 +6,10 @@ Uses the same hashing, as default, but always put key to server, next after choo
 
 =cut
 
-use common::sense 2;
+use common::sense 2;m{
+use strict;
+use warnings;
+}x;
 use Carp;
 use base 'AnyEvent::Memcached::Hash';
 

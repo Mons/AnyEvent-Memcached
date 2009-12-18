@@ -1,6 +1,9 @@
 package AnyEvent::Memcached::Peer;
 
-use common::sense;
+use common::sense 2;m{
+use strict;
+use warnings;
+}x;
 use base 'AnyEvent::Connection';
 use Carp;
 use AnyEvent::Connection::Util;

@@ -4,7 +4,9 @@ author:
   - 'Mons Anderson <mons@cpan.org>'
 build_requires:
   ExtUtils::MakeMaker: 6.42
+  Test::If: 0
   Test::More: 0
+  Test::NoWarnings: 0
   lib::abs: 0.90
 configure_requires:
   ExtUtils::MakeMaker: 6.42
@@ -20,6 +22,10 @@ no_index:
     - examples
     - inc
     - t
+provides:
+  AnyEvent::Memcached:
+    file: lib/AnyEvent/Memcached.pm
+    version: 0.02
 requires:
   AnyEvent: 5.0
   AnyEvent::Connection: 0.02
@@ -27,6 +33,8 @@ requires:
   Object::Event: 1.101
   Storable: 0
   String::CRC32: 0
+  common::sense: 2
+  perl: 5.8.8
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.01_6
+version: 0.02

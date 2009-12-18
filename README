@@ -2,12 +2,14 @@ NAME
     AnyEvent::Memcached - AnyEvent memcached client
 
 VERSION
-    Version 0.01_6
+    Version 0.02
 
 NOTICE
-    This is a developer release. Interface is subject to change.
+    Interface is stabilized. Some features could be rewritten in future with
+    minor changes.
 
-    If you want to rely on some features, please, notify me about them
+    Documentation is incomplete yet, look at tests, examples, sources for
+    now ;)
 
 SYNOPSIS
         use AnyEvent::Memcached;
@@ -21,12 +23,12 @@ SYNOPSIS
         cv      => $cv, # AnyEvent->condvar: group callback
         );
 
-    $memd->set_servers([ "10.0.0.15:11211", "10.0.0.15:11212" ]);
+        $memd->set_servers([ "10.0.0.15:11211", "10.0.0.15:11212" ]);
 
-    # Basic methods are like in Cache::Memcached, but with additional cb => sub { ... };
+        # Basic methods are like in Cache::Memcached, but with additional cb => sub { ... };
         # first argument to cb is return value, second is the error(s)
 
-    $memd->set( key => $value, cb => sub {
+        $memd->set( key => $value, cb => sub {
         shift or warn "Set failed: @_"
         } );
 
@@ -54,7 +56,9 @@ METHODS
     Currently supported options:
 
     servers =item namespace =item debug =item cv =item compress_threshold
-    =item compress_enable =item timeout
+    =item compress_enable =item timeout =item noreply
+        If true, additional connection will established for noreply
+        commands. Beware, feature is under development and may be unstable
 
   set_servers
         Setup server list

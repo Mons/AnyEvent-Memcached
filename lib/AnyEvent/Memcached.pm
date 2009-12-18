@@ -1,11 +1,6 @@
 package AnyEvent::Memcached;
 
-use common::sense;
-use Carp;
-use Devel::Leak::Cb;
-use AnyEvent::Memcached::Peer;
-use AnyEvent::Memcached::Hash;
-use AnyEvent::Memcached::Buckets;
+use 5.8.8;
 
 =head1 NAME
 
@@ -13,17 +8,17 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =head1 VERSION
 
-Version 0.01_7
+Version 0.02
 
 =head1 NOTICE
 
-This is a B<developer release>. Interface is subject to change.
+Interface is stabilized. Some features could be rewritten in future with minor changes.
 
-If you want to rely on some features, please, notify me about them
+Documentation is incomplete yet, look at tests, examples, sources for now ;)
 
 =cut
 
-our $VERSION = '0.01_7';
+our $VERSION = '0.02';
 
 =head1 SYNOPSIS
 
@@ -68,7 +63,15 @@ our $VERSION = '0.01_7';
 
 =cut
 
-use AnyEvent;
+use common::sense 2;m{
+use strict;
+use warnings;
+}x;
+
+use Carp;
+use Devel::Leak::Cb;
+use AnyEvent 5;
+
 use AnyEvent::Socket;
 use AnyEvent::Handle;
 use AnyEvent::Connection;
@@ -76,6 +79,10 @@ use AnyEvent::Memcached::Conn;
 use base 'Object::Event';
 use String::CRC32;
 use Storable ();
+
+use AnyEvent::Memcached::Peer;
+use AnyEvent::Memcached::Hash;
+use AnyEvent::Memcached::Buckets;
 
 # flag definitions
 use constant F_STORABLE => 1;
@@ -159,9 +166,8 @@ sub set_servers {
 				port      => $peer->{port},
 				host      => $peer->{host},
 				timeout   => $self->{timeout},
-				debug     => $self->{debug} || 1,
+				debug     => $self->{debug},# || 1,
 			);
-			# TODO: setup delayed on_read callback to check for errors
 		}
 	}
 	return $self;
@@ -714,7 +720,6 @@ sub rget {
 		$_ and $_->end for $args{cv}, $self->{cv};
 	});
 
-	# TODO: peers ?
 	for my $peer (keys %{$self->{peers}}) {
 		$cv->begin;
 		my $do;$do = sub {
@@ -773,7 +778,6 @@ sub DESTROY {
 	for (values %{$self->{peers}}) {
 		$_->{con} and $_->{con}->destroy;
 	}
-	# TODO
 	%$self = ();
 }
 

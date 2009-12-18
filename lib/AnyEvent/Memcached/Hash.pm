@@ -1,6 +1,9 @@
 package AnyEvent::Memcached::Hash;
 
-use common::sense 2;
+use common::sense 2;m{
+use strict;
+use warnings;
+}x;
 use Carp;
 use String::CRC32 'crc32';
 

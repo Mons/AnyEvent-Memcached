@@ -1,6 +1,8 @@
 #!/usr/bin/env perl
 
-use Test::More tests => 35;
+use common::sense 2;
+use Test::NoWarnings;
+use Test::More tests => 35+1;
 use lib::abs "../lib";
 use AnyEvent::Memcached::Hash;
 use AnyEvent::Memcached::Hash::WithNext;

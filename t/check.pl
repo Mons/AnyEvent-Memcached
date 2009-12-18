@@ -1,4 +1,4 @@
-use strict;
+use common::sense;
 use lib::abs '../lib';
 use Test::More;
 use AnyEvent::Impl::Perl;
@@ -16,14 +16,16 @@ my $cv;$cv = AE::cv { $cv->send; };
 #my $cv = AnyEvent->condvar;
 #$cv->begin(sub { $cv->send });
 
+my $memd;
 $cv->begin;
 my $cg;$cg = tcp_connect $host,$port, sub {
 	undef $cg;
 	@_ or plan skip_all => "No memcached instance running at $testaddr\n";
 	diag "testing $testaddr";
-	plan tests => 21;
+	require Test::NoWarnings;Test::NoWarnings->import;
+	plan tests => 21+1;
 
-	my $memd = AnyEvent::Memcached->new(
+	$memd = AnyEvent::Memcached->new(
 		servers   => [ $testaddr ],
 		cv        => $cv,
 		debug     => 0,
@@ -119,5 +121,5 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 	$cv->end; #connect
 }, sub { 1 };
 
-#$cv->end;
 $cv->recv;
+$memd->destroy();
