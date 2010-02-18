@@ -83,6 +83,25 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 												ok(! exists $r->{ 'key2' }, '!rget(].key2' );
 												is( $r->{ 'key3' }, 'val3', 'rget(].key3' );
 											});
+											
+											$memd->rget('key2','key3', rv => 'array', cb => sub { # +left, +right
+												my $r = shift;
+												is_deeply $r,
+													[qw(key2 val-replace key3 val3)],
+													'rget[] array';
+											});
+											$memd->rget('key2','key3', '+right' => 0, rv => 'array', cb => sub {
+												my $r = shift;
+												is_deeply $r,
+													[qw(key2 val-replace)],
+													'rget[) array';
+											});
+											$memd->rget('key2','key3', '+left' => 0, rv => 'array', cb => sub {
+												my $r = shift;
+												is_deeply $r,
+													[qw(key3 val3)],
+													'rget(] array';
+											});
 										});
 									} else {
 										like( $e, qr/rget not supported/, 'rget fails' );

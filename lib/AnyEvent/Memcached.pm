@@ -480,7 +480,11 @@ B<NOT IMPLEMENTED YET>
 sub _deflate {
 	my $self = shift;
 	my $result = shift;
-	for (values %$result) {
+	for (
+		ref $result eq 'ARRAY' ? 
+			@$result ? @$result[ map { $_*2+1 } 0..int( $#$result / 2 ) ] : ()
+			: values %$result
+	) {
 		if ($HAVE_ZLIB and $_->{flags} & F_COMPRESS) {
 			$_->{data} = Compress::Zlib::memGunzip($_->{data});
 		}
@@ -703,20 +707,25 @@ sub rget {
 	my $till = shift;
 	my %args = @_;
 	my ($lkey,$rkey);
+	#$lkey = ( exists $args{'+left'} && !$args{'+left'} ) ? 1 : 0;
 	$lkey = exists $args{'+left'}  ? $args{'+left'}  ? 0 : 1 : 0;
 	$rkey = exists $args{'+right'} ? $args{'+right'} ? 0 : 1 : 0;
 	$args{max} ||= 100;
-	#return $args{cb}(undef, "Readonly") if $self->{readonly};
 
-	my %result;
+	my $result;
+	if (lc $args{rv} eq 'array') {
+		$result = [];
+	} else {
+		$result = {};
+	}
 	my $err;
 	my $cv = AnyEvent->condvar;
 	$_ and $_->begin for $self->{cv}, $args{cv};
 	$cv->begin(sub {
 		undef $cv;
-		$self->_deflate(\%result);
-		$args{cb}( $err ? (undef,$err) : \%result );
-		%result = ();
+		$self->_deflate($result);
+		$args{cb}( $err ? (undef,$err) : $result );
+		undef $result;
 		$_ and $_->end for $args{cv}, $self->{cv};
 	});
 
@@ -725,7 +734,7 @@ sub rget {
 		my $do;$do = sub {
 			undef $do;
 			$self->{peers}{$peer}{con}->request( "$cmd $self->{namespace}$from $self->{namespace}$till $lkey $rkey $args{max}" );
-			$self->{peers}{$peer}{con}->reader( id => $peer, res => \%result, namespace => $self->{namespace}, cb => sub {
+			$self->{peers}{$peer}{con}->reader( id => $peer, res => $result, namespace => $self->{namespace}, cb => sub {
 				#warn "rget from: $peer";
 				$cv->end;
 			});
