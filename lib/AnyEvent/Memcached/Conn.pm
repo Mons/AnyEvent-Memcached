@@ -17,6 +17,7 @@ sub reader {
 	$args{cb} or return $self->event( error => "no cb for command at @{[ (caller)[1,2] ]}" );
 	$self->{h} or return $args{cb}->(undef,"Not connected");
 	my $result = $args{res} || {};
+	my $ar = ref $result eq 'ARRAY' ? 1 : 0;
 	my $cut = exists $args{namespace} ? length $args{namespace} : 0;
 	my $reader;$reader = sub {
 		shift;
@@ -40,11 +41,17 @@ sub reader {
 				#$data = substr($data,0,length($data)-2);
 				$key = substr($key, $cut) if substr($key, 0, $cut) eq $args{namespace};
 				warn "+ received data $key: $data" if $self->{debug};
-				$result->{$key} = {
+				my $v = {
 					data => $data,
 					flags => $flags,
 					$cas ? (cas => $cas) : (),
-				};#{ data => $data, $cas ? (cas => $cas) : () };
+				};
+				if ($ar) {
+					push @$result, $key, $v;
+				} else {
+					$result->{$key} = $v;#{ data => $data, $cas ? (cas => $cas) : () };
+				}
+				
 				$self->{h}->unshift_read( line => $reader);
 			});
 		}
