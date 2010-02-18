@@ -23,7 +23,7 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 	@_ or plan skip_all => "No memcached instance running at $testaddr\n";
 	diag "testing $testaddr";
 	require Test::NoWarnings;Test::NoWarnings->import;
-	plan tests => 24+1;
+	plan tests => 27+1;
 
 	$memd = AnyEvent::Memcached->new(
 		servers   => [ $testaddr ],
@@ -105,7 +105,7 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 										});
 									} else {
 										like( $e, qr/rget not supported/, 'rget fails' );
-										SKIP: { skip "Have no rget",6 }
+										SKIP: { skip "Have no rget",6+3 }
 									}
 								});
 								
