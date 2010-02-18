@@ -23,7 +23,7 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 	@_ or plan skip_all => "No memcached instance running at $testaddr\n";
 	diag "testing $testaddr";
 	require Test::NoWarnings;Test::NoWarnings->import;
-	plan tests => 21+1;
+	plan tests => 24+1;
 
 	$memd = AnyEvent::Memcached->new(
 		servers   => [ $testaddr ],
@@ -49,8 +49,18 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 							ok(shift, "replace key2 as val-replace");
 							$memd->get("key2", cb => sub {
 								is(shift, "val-replace", "get key2 is val-replace") or diag "@_";
-								
-								
+								$memd->set( key4 => {ref => 1}, cb => sub {
+									ok shift, 'set ref' or diag "@_";
+									$memd->get(
+										[qw(key2 key4)],
+										cb => sub {
+											ok(my $r = shift, 'get multi');
+											is_deeply $r,
+												{ qw(key2 val-replace key4 ), {ref => 1} },
+												'get multi values';
+										},
+									);
+								});
 								
 								$memd->rget('1','0', cb => sub {
 									my ($r,$e) = @_;

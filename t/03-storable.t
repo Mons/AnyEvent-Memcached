@@ -2,7 +2,7 @@
 
 our $testaddr = $ENV{MEMCACHED_SERVER} || "127.0.0.1:21201"; # Default memcachedb port
 
-use strict;
+use common::sense;
 use lib::abs '../lib';
 use Test::More;
 use AnyEvent::Impl::Perl;
@@ -23,7 +23,7 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 	@_ or plan skip_all => "No memcached instance running at $testaddr\n";
 	diag "testing $testaddr";
 	require Test::NoWarnings;Test::NoWarnings->import;
-	plan tests => 3 + 1;
+	plan tests => 5 + 1;
 
 	my $memd = AnyEvent::Memcached->new(
 		servers   => $testaddr,
@@ -36,11 +36,15 @@ my $cg;$cg = tcp_connect $host,$port, sub {
 
 	isa_ok($memd, 'AnyEvent::Memcached');
 	# Repeated structures will be compressed
-	$memd->set("key1", { some => 'struct'x10 }, cb => sub {
+	$memd->set(key1 => { some => 'struct'x10 }, cb => sub {
 		ok(shift,"set key1") or diag "  Error: @_";
 		$memd->get("key1", cb => sub {
 			is_deeply(shift, { some => 'struct'x10 }, "get key1") or diag "  Error: @_";
 		});
+	});
+	$memd->get("test", cb => sub {
+		ok !shift, 'no value';
+		ok !@_, 'no errors';
 	});
 	$cv->end; #connect
 }, sub { 1 };

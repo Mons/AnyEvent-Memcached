@@ -213,8 +213,8 @@ sub _p4k {
 
 sub _do {
 	my $self    = shift;
-	my $key     = shift;
-	my $command = shift;
+	my $key     = shift;utf8::encode($key) if utf8::is_utf8($key);
+	my $command = shift;utf8::encode($command) if utf8::is_utf8($command);
 	my $worker  = shift; # CODE
 	my %args    = @_;
 	my $servers = $self->{hash}->servers($key);
