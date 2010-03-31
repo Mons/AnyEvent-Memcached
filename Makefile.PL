@@ -3,7 +3,7 @@ use inc::Module::Install;
 name     'AnyEvent-Memcached';
 all_from 'lib/AnyEvent/Memcached.pm';
 author   'Mons Anderson <mons@cpan.org>';
-version   my $v = '0.02_01';
+version   my $v = '0.02_02';
 license  'perl';
 
 build_requires 'Test::More';

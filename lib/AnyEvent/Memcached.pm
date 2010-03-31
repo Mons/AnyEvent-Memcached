@@ -8,7 +8,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =cut
 
-our $VERSION = '0.02_01';
+our $VERSION = '0.02_02';
 
 =head1 SYNOPSIS
 
@@ -167,6 +167,7 @@ sub new {
 	for (qw( debug cv compress_threshold compress_enable timeout noreply cas)) {
 		$self->{$_} = exists $args{$_} ? delete $args{$_} : 0;
 	}
+	$self->{timeout} ||= 3;
 	$self->{_bucker} = $args{bucker} || 'AnyEvent::Memcached::Buckets';
 	$self->{_hasher} = $args{hasher} || 'AnyEvent::Memcached::Hash';
 
@@ -764,13 +765,21 @@ sub rget {
 		} else {
 			$self->{peers}{$peer}{con}->command( "$cmd 1 0 0 0 1", cb => sub {
 				local $_ = shift;
-				if ($_ eq 'END') {
-					$self->{peers}{$peer}{rget_ok} = 1;
-					$do->();
+				if (defined $_) {
+					if ($_ eq 'END') {
+						$self->{peers}{$peer}{rget_ok} = 1;
+						$do->();
+					}
+					else {
+						#warn
+							$err = "rget not supported on peer $peer: @_";
+						$self->{peers}{$peer}{rget_ok} = 0;
+						undef $do;
+						$cv->end;
+					}
 				} else {
-					#warn
-						$err = "rget not supported on peer $peer";
-					$self->{peers}{$peer}{rget_ok} = 0;
+					$err = "@_";
+					undef $do;
 					$cv->end;
 				}
 			} );

@@ -1,6 +1,10 @@
 Revision history for AnyEvent-Memcached
 
-0.02_01 2009-12-18
+0.02_01 2010-03-31
+        * Fix rget support flag for the first fail by timeout
+        * Add default timeout = 3
+
+0.02_01 2010-03-31
         * Add gets/cas methods
         * Add incget method
         * Add options to rget

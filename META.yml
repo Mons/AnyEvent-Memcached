@@ -25,7 +25,7 @@ no_index:
 provides:
   AnyEvent::Memcached:
     file: lib/AnyEvent/Memcached.pm
-    version: 0.02_01
+    version: 0.02_02
 requires:
   AnyEvent: 5.0
   AnyEvent::Connection: 0.05
@@ -35,4 +35,4 @@ requires:
   perl: 5.8.8
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.02_01
+version: 0.02_02

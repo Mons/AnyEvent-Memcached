@@ -55,7 +55,7 @@ sub conntrack {
 	}
 	elsif (!$self->{connected}) {
 		my @args = @$args; # copy to avoid rewriting
-		warn "Not connected, do connect for ".\@args.", ".dumper($args[0]) if DEBUG;
+		warn time()." Not connected, do connect for ".\@args.", ".dumper($args[0]) if DEBUG;
 		my ($c,$t);
 		weaken( $self->{waitingcb}{int $cb} = $cb ) if $cb;
 		weaken( $self );
@@ -73,10 +73,10 @@ sub conntrack {
 			},
 		);
 		$t = AnyEvent->timer(
-			after => $self->{timeout},
+			after => $self->{timeout},# + 0.05, # Since there are timers inside connect, we need to delay a bit longer
 			cb => sub {
 				#$t or return;
-				warn "timeout cb for $args->[0]" if DEBUG;
+				warn time()." timeout $self->{timeout} cb for $args->[0]" if DEBUG;
 				undef $c;undef $t;
 				$self or return;
 				if ($cb){
