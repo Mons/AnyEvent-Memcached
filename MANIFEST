@@ -1,4 +1,4 @@
-.cvsignore
+.gitignore
 Changes
 examples/test.pl
 inc/Module/AutoInstall.pm
@@ -30,6 +30,8 @@ t/02-usage-memdb.t
 t/03-storable.t
 t/04-hashing.t
 t/05-hashing-with-next.t
-t/99-dist.t
 t/check.pl
+t/lib/Test/AE/MC.pm
+t/lib/Test/AE/MD.pm
 t/pod.t
+xt/99-dist.t

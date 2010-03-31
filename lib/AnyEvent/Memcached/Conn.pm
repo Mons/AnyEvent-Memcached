@@ -27,6 +27,10 @@ sub reader {
 			undef $reader;
 			$args{cb}( $result );
 		}
+		elsif (substr($_,0,5) eq 'ERROR') {
+			undef $reader;
+			$args{cb}( undef, $_ );
+		}
 		elsif (!length) {
 			warn "Skip empty line";
 			$self->{h}->unshift_read( line => $reader);
@@ -44,7 +48,7 @@ sub reader {
 				my $v = {
 					data => $data,
 					flags => $flags,
-					$cas ? (cas => $cas) : (),
+					defined $cas ? (cas => $cas) : (),
 				};
 				if ($ar) {
 					push @$result, $key, $v;

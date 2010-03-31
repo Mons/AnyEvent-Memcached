@@ -1,53 +1,37 @@
 #!/usr/bin/env perl -w
 
-our $testaddr = $ENV{MEMCACHED_SERVER} || "127.0.0.1:21201"; # Default memcachedb port
-
+use lib::abs 'lib','../lib';#, '../../AE-Cnn/lib';
+use Test::AE::MC;
 use common::sense;
-use lib::abs '../lib';
-use Test::More;
-use AnyEvent::Impl::Perl;
-use AnyEvent;
-use AnyEvent::Socket;
-use AnyEvent::Memcached;
 
-my ($host,$port) = split ':',$testaddr;$host ||= '127.0.0.1'; # allow *_SERVER=:port
-$testaddr = join ':', $host,$port;
-
-alarm 10;
-my $cv = AnyEvent->condvar;
-$cv->begin(sub { $cv->send });
-
-$cv->begin;
-my $cg;$cg = tcp_connect $host,$port, sub {
-	undef $cg;
-	@_ or plan skip_all => "No memcached instance running at $testaddr\n";
-	diag "testing $testaddr";
+runtest {
+	my ($host,$port) = @_;
+	diag "testing $host : $port";
 	require Test::NoWarnings;Test::NoWarnings->import;
 	plan tests => 5 + 1;
-
+	my $cv = AE::cv;
+	
 	my $memd = AnyEvent::Memcached->new(
-		servers   => $testaddr,
+		servers   => "$host:$port",
 		cv        => $cv,
 		debug     => 0,
 		namespace => "AE::Memd::t/$$/" . (time() % 100) . "/",
 		compress_enable    => 1,
 		compress_threshold => 1, # Almost everything is greater than 1
 	);
-
+	
 	isa_ok($memd, 'AnyEvent::Memcached');
 	# Repeated structures will be compressed
-	$memd->set(key1 => { some => 'struct'x10 }, cb => sub {
+	$memd->set(key1 => { some => 'struct'x10, "\0" => "\1" }, cb => sub {
 		ok(shift,"set key1") or diag "  Error: @_";
 		$memd->get("key1", cb => sub {
-			is_deeply(shift, { some => 'struct'x10 }, "get key1") or diag "  Error: @_";
+			is_deeply(shift, { some => 'struct'x10, "\0" => "\1" }, "get key1") or diag "  Error: @_";
 		});
 	});
-	$memd->get("test", cb => sub {
+	$memd->get("test%s", cb => sub {
 		ok !shift, 'no value';
 		ok !@_, 'no errors';
 	});
-	$cv->end; #connect
-}, sub { 1 };
-
-$cv->end;
-$cv->recv;
+	
+	$cv->recv;
+};

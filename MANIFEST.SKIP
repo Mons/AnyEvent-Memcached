@@ -29,4 +29,5 @@
 ^dist/
 ^makeall\.sh$
 ^tmp/
+^t/lib/Test/AE/tdb.*
 ^AnyEvent-Memcached-.*

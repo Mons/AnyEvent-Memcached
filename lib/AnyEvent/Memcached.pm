@@ -6,19 +6,9 @@ use 5.8.8;
 
 AnyEvent::Memcached - AnyEvent memcached client
 
-=head1 VERSION
-
-Version 0.02
-
-=head1 NOTICE
-
-Interface is stabilized. Some features could be rewritten in future with minor changes.
-
-Documentation is incomplete yet, look at tests, examples, sources for now ;)
-
 =cut
 
-our $VERSION = '0.02';
+our $VERSION = '0.02_01';
 
 =head1 SYNOPSIS
 
@@ -29,6 +19,9 @@ our $VERSION = '0.02';
         debug   => 1,
         compress_threshold => 10000,
         namespace => 'my-namespace:',
+        
+        # May use another hashing algo:
+        hasher  => 'AnyEvent::Memcached::Hash::WithNext',
 
         cv      => $cv, # AnyEvent->condvar: group callback
     );
@@ -42,13 +35,15 @@ our $VERSION = '0.02';
         shift or warn "Set failed: @_"
     } );
 
+    # Single get
     $memd->get( 'key', cb => sub {
         my ($value,$err) = shift;
         $err and return warn "Get failed: @_";
         warn "Value for key is $value";
     } );
 
-    $memd->mget( [ 'key1', 'key2' ], cb => sub {
+    # Multi-get
+    $memd->get( [ 'key1', 'key2' ], cb => sub {
         my ($values,$err) = shift;
         $err and return warn "Get failed: @_";
         warn "Value for key1 is $values->{key1} and value for key2 is $values->{key2}"
@@ -57,9 +52,47 @@ our $VERSION = '0.02';
     # Additionally there is rget (see memcachedb-1.2.1-beta)
 
     $memd->rget( 'fromkey', 'tokey', cb => sub {
-        my ($value,$err) = shift;
+        my ($values,$err) = shift;
         $err and warn "Get failed: @_";
+        while (my ($key,$value) = each %$values) {
+            # ...
+        }
     } );
+    
+    # Rget with sorted responce values
+    $memd->rget( 'fromkey', 'tokey', rv => 'array' cb => sub {
+        my ($values,$err) = shift;
+        $err and warn "Get failed: @_";
+        for (0 .. $#values/2) {
+            my ($key,$value) = @$values[$_*2,$_*2+1];
+        }
+    } );
+
+=head1 DESCRIPTION
+
+Asyncronous C<memcached/memcachedb> client for L<AnyEvent> framework
+
+=head1 NOTICE
+
+There is a notices in L<Cache::Memcached::AnyEvent> related to this module. They all has been fixed
+
+=over 4
+
+=item Prerequisites
+
+We no longer need L<Object::Event> and L<Devel::Leak::Cb>. At all, the dependency list is like in L<Cache::Memcached> + L<AnyEvent>
+
+=item Binary protocol
+
+It seems to me, that usage of binary protocol from pure perl gives very little advantage. So for now I don't implement it
+
+=item Unimplemented Methods
+
+There is a note, that get_multi is not implementeted. In fact, it was implemented by method L</get>, but the documentation was wrong.
+
+=back
+
+In general, this module follows the spirit of L<AnyEvent> rather than correspondence to L<Cache::Memcached> interface.
 
 =cut
 
@@ -69,15 +102,14 @@ use warnings;
 }x;
 
 use Carp;
-use Devel::Leak::Cb;
 use AnyEvent 5;
+#use Devel::Leak::Cb;
 
 use AnyEvent::Socket;
 use AnyEvent::Handle;
 use AnyEvent::Connection;
+use AnyEvent::Connection::Util;
 use AnyEvent::Memcached::Conn;
-use base 'Object::Event';
-use String::CRC32;
 use Storable ();
 
 use AnyEvent::Memcached::Peer;
@@ -96,10 +128,6 @@ BEGIN {
 	$HAVE_ZLIB = eval "use Compress::Zlib (); 1;";
 }
 
-sub _hash($) {
-	return (crc32($_[0]) >> 16) & 0x7fff;
-}
-
 =head1 METHODS
 
 =head2 new %args
@@ -115,9 +143,18 @@ Currently supported options:
 =item compress_threshold
 =item compress_enable
 =item timeout
+=item hasher
+
+If set, will use instance of this class for hashing instead of default.
+For implementing your own hashing, see sources of L<AnyEvent::Memcached::Hash> and L<AnyEvent::Memcached::Hash::With::Next>
+
 =item noreply
 
-If true, additional connection will established for noreply commands. Beware, feature is under development and may be unstable
+If true, additional connection will established for noreply commands.
+
+=item cas
+
+If true, will enable cas/gets commands (since they are not suppotred in memcachedb)
 
 =back
 
@@ -127,7 +164,7 @@ sub new {
 	my $self = bless {}, shift;
 	my %args = @_;
 	$self->{namespace} = exists $args{namespace} ? delete $args{namespace} : '';
-	for (qw( debug cv compress_threshold compress_enable timeout noreply)) {
+	for (qw( debug cv compress_threshold compress_enable timeout noreply cas)) {
 		$self->{$_} = exists $args{$_} ? delete $args{$_} : 0;
 	}
 	$self->{_bucker} = $args{bucker} || 'AnyEvent::Memcached::Buckets';
@@ -200,21 +237,10 @@ sub _handle_errors {
 	}
 }
 
-sub _p4k {
-	my $self = shift;
-	my $key = shift;
-	die "Should not be used (_p4k) at @{[ (caller)[1,2] ]}\n";
-	my ($hv, $real_key) = ref $key ?
-		(int($key->[0]), $key->[1]) :
-		(_hash($key),    $key);
-	my $bucket = $hv % $self->{bucketcount};
-	return wantarray ? ( $self->{buckets}[$bucket], $real_key ) : $self->{buckets}[$bucket];
-}
-
 sub _do {
 	my $self    = shift;
-	my $key     = shift;utf8::encode($key) if utf8::is_utf8($key);
-	my $command = shift;utf8::encode($command) if utf8::is_utf8($command);
+	my $key     = shift; utf8::decode($key) xor utf8::encode($key) if utf8::is_utf8($key);
+	my $command = shift; utf8::decode($command) xor utf8::encode($command) if utf8::is_utf8($command);
 	my $worker  = shift; # CODE
 	my %args    = @_;
 	my $servers = $self->{hash}->servers($key);
@@ -233,11 +259,12 @@ sub _do {
 	if ($args{noreply}) {
 		for my $srv ( keys %$servers ) {
 			for my $real (@{ $servers->{$srv} }) {
-				my $cmd = sprintf($command, $real).' noreply';
+				my $cmd = $command.' noreply';
+				substr($cmd, index($cmd,'%s'),2) = $real;
 				$self->{peers}{$srv}{nrc}->request($cmd);
 				$self->{peers}{$srv}{lastnr} = $cmd;
 				unless ($self->{peers}{$srv}{nrc}->handles('command')) {
-					$self->{peers}{$srv}{nrc}->reg_cb(command => cb {
+					$self->{peers}{$srv}{nrc}->reg_cb(command => sub { # cb {
 						shift;
 						warn "Got data from $srv noreply connection (while shouldn't): @_\nLast noreply command was $self->{peers}{$srv}{lastnr}\n";
 					});
@@ -250,7 +277,7 @@ sub _do {
 	}
 	$_ and $_->begin for $self->{cv}, $args{cv};
 	my $cv = AE::cv {
-		use Data::Dumper;
+		#use Data::Dumper;
 		#warn Dumper $res,\%res,\%err;
 		if ($res != -1) {
 			$args{cb}($res);
@@ -260,7 +287,7 @@ sub _do {
 			$args{cb}($res{$key});
 		}
 		else {
-			$args{cb}(undef, Dumper($err{$key}));
+			$args{cb}(undef, dumper($err{$key}));
 		}
 		#warn "cv end";
 		
@@ -269,10 +296,11 @@ sub _do {
 	for my $srv ( keys %$servers ) {
 		for my $real (@{ $servers->{$srv} }) {
 			$cv->begin;
-			my $cmd = sprintf $command, $real;
+			my $cmd = $command;
+			substr($cmd, index($cmd,'%s'),2) = $real;
 			$self->{peers}{$srv}{con}->command(
 				$cmd,
-				cb => cb {
+				cb => sub { # cb {
 					if (defined( local $_ = shift )) {
 						my ($ok,$fail) = $worker->($_);
 						if (defined $ok) {
@@ -299,11 +327,14 @@ sub _set {
 	my $self = shift;
 	my $cmd = shift;
 	my $key = shift;
+	my $cas;
+	if ($cmd eq 'cas') {
+		$cas = shift;
+	}
 	my $val = shift;
 	my %args = @_;
 	return $args{cb}(undef, "Readonly") if $self->{readonly};
 	#warn "cv begin";
-	#(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
 
 	use bytes; # return bytes from length()
 
@@ -333,8 +364,8 @@ sub _set {
 	my $expire = int($args{expire} || 0);
 	return $self->_do(
 		$key,
-		"$cmd $self->{namespace}%s $flags $expire $len\015\012$val",
-		cb {
+		"$cmd $self->{namespace}%s $flags $expire $len".(defined $cas ? ' '.$cas : '')."\015\012$val",
+		sub { # cb {
 			local $_ = shift;
 			if    ($_ eq 'STORED')     { return 1 }
 			elsif ($_ eq 'NOT_STORED') { return 0 }
@@ -349,8 +380,6 @@ sub _set {
 	my %err;
 	my $res;
 	my $cv = AE::cv {
-		use Data::Dumper;
-		warn Dumper $res,\%res,\%err;
 		if ($res != -1) {
 			$args{cb}($res);
 		}
@@ -359,7 +388,7 @@ sub _set {
 			$args{cb}($res{$key});
 		}
 		else {
-			$args{cb}(undef, Dumper($err{$key}));
+			$args{cb}(undef, dumper($err{$key}));
 		}
 		warn "cv end";
 		
@@ -373,7 +402,7 @@ sub _set {
 			$cv->begin;
 			$self->{peers}{$srv}{con}->command(
 				"$cmd $self->{namespace}$real $flags $expire $len\015\012$val",
-				cb => cb {
+				cb => sub { # cb {
 					if (defined( local $_ = shift )) {
 						if ($_ eq 'STORED') {
 							$res{$real}{$srv} = 1;
@@ -427,6 +456,28 @@ Error happens, see C<$err>
 
 =back
 
+=head2 cas( $key, $cas, $value, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
+
+    $memd->gets($key, cb => sub {
+        my $value = shift;
+        unless (@_) { # No errors
+            my ($cas,$val) = @$value;
+            # Change your value in $val
+            $memd->cas( $key, $cas, $value, cb => sub {
+                my $rc = shift;
+                if ($rc) {
+                    # stored
+                } else {
+                    # ...
+                }
+            });
+        }
+    })
+
+C<$rc> is the same, as for L</set>
+
+Store the C<$value> on the server under the C<$key>, but only if CAS value associated with this key is equal to C<$cas>. See also L</gets>
+
 =head2 add( $key, $value, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
 
 Like C<set>, but only stores in memcache if the key doesn't already exist.
@@ -450,6 +501,11 @@ B<prepend> command first appeared in memcached 1.2.4.
 =cut
 
 sub set     { shift->_set( set => @_) }
+sub cas     {
+	my $self = shift;
+	unless ($self->{cas}) { shift;shift;my %args = @_;return $args{cb}(undef, "CAS not enabled") }
+	$self->_set( cas => @_)
+}
 sub add     { shift->_set( add => @_) }
 sub replace { shift->_set( replace => @_) }
 sub append  { shift->_set( append => @_) }
@@ -459,21 +515,21 @@ sub prepend { shift->_set( prepend => @_) }
 
 Retrieve the value for a $key. $key should be a scalar
 
-=head2 mget( $keys : ARRAYREF, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
+=head2 get( $keys : ARRAYREF, [cv => $cv], [ expire => $expire ], cb => $cb->( $values_hash, $err ) )
 
-B<NOT IMPLEMENTED YET>
+Retrieve the values for a $keys. Return a hash with keys/values
 
-Retrieve the values for a $keys. 
-
-=head2 get_multi : Alias for mget.
-
-B<NOT IMPLEMENTED YET>
-
-=head2 gets( $keys : ARRAYREF, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
+=head2 gets( $key, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
 
 Retrieve the value and its CAS for a $key. $key should be a scalar.
 
-B<NOT IMPLEMENTED YET>
+C<$rc> is a reference to an array [$cas, $value], or nothing for non-existent key
+
+=head2 gets( $keys : ARRAYREF, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
+
+Retrieve the values and their CAS for a $keys.
+
+C<$rc> is a hash reference with $rc->{$key} is a reference to an array [$cas, $value]
 
 =cut
 
@@ -491,17 +547,20 @@ sub _deflate {
 		if ($_->{flags} & F_STORABLE) {
 			eval{ $_->{data} = Storable::thaw($_->{data}); 1 } or delete $_->{data};
 		}
-		$_ = $_->{data};
+		if (exists $_->{cas}) {
+			$_ = [$_->{cas},$_->{data}];
+		} else {
+			$_ = $_->{data};
+		}
 	}
 	return;
 }
 
-sub get {
+sub _get {
 	my $self = shift;
-	my ($cmd) = (caller(0))[3] =~ /([^:]+)$/;
+	my $cmd  = shift;
 	my $keys = shift;
 	my %args = @_;
-	#$self->{connected} or return $self->connect( $cmd => $keys, \%args );
 	my $array;
 	if (ref $keys and ref $keys eq 'ARRAY') {
 		$array = 1;
@@ -512,8 +571,6 @@ sub get {
 	my %res;
 	my $cv = AE::cv {
 		$self->_deflate(\%res);
-		#use Data::Dumper;
-		#warn Dumper \%res;
 		$args{cb}( $array ? \%res :  $res{ $keys } );
 		$_ and $_->end for $args{cv}, $self->{cv};
 	};
@@ -521,12 +578,18 @@ sub get {
 		#warn "server for $key = $srv, $self->{peers}{$srv}";
 		$cv->begin;
 		my $keys = join(' ',map "$self->{namespace}$_", @{ $servers->{$srv} });
-		$self->{peers}{$srv}{con}->request( "get $keys" );
-		$self->{peers}{$srv}{con}->reader( id => $srv.'+'.$keys, res => \%res, namespace => $self->{namespace}, cb => cb {
+		$self->{peers}{$srv}{con}->request( "$cmd $keys" );
+		$self->{peers}{$srv}{con}->reader( id => $srv.'+'.$keys, res => \%res, namespace => $self->{namespace}, cb => sub { # cb {
 			$cv->end;
 		});
 	}
 	return;
+}
+sub get  { shift->_get(get => @_) }
+sub gets {
+	my $self = shift;
+	unless ($self->{cas}) { shift;my %args = @_;return $args{cb}(undef, "CAS not enabled") }
+	$self->_get(gets => @_)
 }
 
 =head2 delete( $key, [cv => $cv], [ noreply => 1 ], cb => $cb->( $rc, $err ) )
@@ -555,7 +618,7 @@ sub delete {
 	return $self->_do(
 		$key,
 		"delete $self->{namespace}%s$time",
-		cb {
+		sub { # cb {
 			local $_ = shift;
 			if    ($_ eq 'DELETED')    { return 1 }
 			elsif ($_ eq 'NOT_FOUND')  { return 0 }
@@ -564,32 +627,6 @@ sub delete {
 		cb => $args{cb},
 		noreply => $args{noreply},
 	);
-	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
-
-	if ($args{noreply}) {
-		$self->{peers}{$peer}{con}->request("delete $self->{namespace}$key noreply");
-		$args{cb}(1) if $args{cb};
-	} else {
-		$_ and $_->begin for $self->{cv}, $args{cv};
-		$self->{peers}{$peer}{con}->command(
-			"delete $self->{namespace}$key$time",
-			cb => cb {
-				if (defined( local $_ = shift )) {
-					if ($_ eq 'DELETED') {
-						$args{cb}(1);
-					} elsif ($_ eq 'NOT_FOUND') {
-						$args{cb}(0);
-					} else {
-						$args{cb}(undef,$_);
-					}
-				} else {
-					$args{cb}(undef, @_);
-				}
-				$_ and $_->end for $args{cv}, $self->{cv};
-			}
-		);
-	}
-	return;
 }
 *del   =  \&delete;
 *remove = \&delete;
@@ -619,7 +656,7 @@ sub _delta {
 	return $self->_do(
 		$key,
 		"$cmd $self->{namespace}%s $val",
-		cb {
+		sub { # cb {
 			local $_ = shift;
 			if    ($_ eq 'NOT_FOUND')  { return 0 }
 			elsif (/^(\d+)$/)          { return $1 eq '0' ? '0E0' : $_ }
@@ -628,33 +665,6 @@ sub _delta {
 		cb => $args{cb},
 		noreply => $args{noreply},
 	);
-	(my $peer,$key) = $self->_p4k($key) or return $args{cb}(undef, "Peer dead???");
-	if ($args{noreply}) {
-		$self->{peers}{$peer}{con}->request("$cmd $self->{namespace}$key $val noreply");
-		$args{cb}(1) if $args{cb};
-	} else {
-		$_ and $_->begin for $self->{cv}, $args{cv};
-		$self->{peers}{$peer}{con}->command(
-			"$cmd $self->{namespace}$key $val",
-			cb => cb {
-				if (defined( local $_ = shift )) {
-					if ($_ eq 'NOT_FOUND') {
-						$args{cb}(undef);
-					}
-					elsif( /^(\d+)$/ ) {
-						$args{cb}($1 eq '0' ? '0E0' : $1);
-					}
-					else {
-						$args{cb}(undef,$_);
-					}
-				} else {
-					$args{cb}(undef, @_);
-				}
-				$_ and $_->end for $args{cv}, $self->{cv};
-			}
-		);
-	}
-	return;
 }
 sub incr { shift->_delta(@_) }
 sub decr { shift->_delta(@_) }
@@ -669,7 +679,7 @@ sub decr { shift->_delta(@_) }
 
 # rget ($from,$till, '+left' => 1, '+right' => 0, max => 10, cb => sub { ... } );
 
-=head2 rget( $from, $till, [ max => 100 ], [ '+left' => 1 ], [ '+right' => 1 ], [cv => $cv], cb => $cb->( $rc, $err ) )
+=head2 rget( $from, $till, [ max => 100 ], [ '+left' => 1 ], [ '+right' => 1 ], [cv => $cv], [ rv => 'array' ], cb => $cb->( $rc, $err ) )
 
 Memcachedb 1.2.1-beta implements rget method, that allows to look through the whole storage
 
@@ -694,6 +704,10 @@ If true, then finishing key will be included in results. true by default
 =item max
 
 Maximum number of results to fetch. 100 is the maximum and is the default
+
+=item rv
+
+If passed rv => 'array', then the return value will be arrayref with values in order, returned by memcachedb.
 
 =back
 
@@ -767,6 +781,45 @@ sub rget {
 	return;
 }
 
+=head2 incadd ( $key, $increment, [cv => $cv], [ noreply => 1 ], cb => $cb->( $rc, $err ) )
+
+Increment key, and if it not exists, add it with initial value. If add fails, try again to incr or fail
+
+=cut
+
+sub incadd {
+	my $self = shift;
+	my $key = shift;
+	my $val = shift;
+	my %args = @_;
+	$self->incr($key => $val, cb => sub {
+		if (my $rc = shift or @_) {
+			#if (@_) {
+			#	warn("incr failed: @_");
+			#} else {
+			#	warn "incr ok";
+			#}
+			$args{cb}($rc, @_);
+		}
+		else {
+			$self->add( $key, $val, cb => sub {
+				if ( my $rc = shift or @_ ) {
+					#if (@_) {
+					#	warn("add failed: @_");
+					#} else {
+					#	warn "add ok";
+					#}
+					$args{cb}($val, @_);
+				}
+				else {
+					#warn "add failed, try again";
+					$self->incr_add($key,$val,%args);
+				}
+			});
+		}
+	});
+}
+
 =head2 destroy
 
 Shutdown object as much, as possible, incl cleaning of incapsulated objects
@@ -792,8 +845,6 @@ sub DESTROY {
 
 =head1 BUGS
 
-Since there is developer release, there may be a lot of bugs
-
 Feature requests are welcome
 
 Bug reports are welcome
@@ -808,7 +859,6 @@ Copyright 2009 Mons Anderson, all rights reserved.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
-
 
 =cut
 

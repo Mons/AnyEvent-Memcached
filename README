@@ -1,16 +1,6 @@
 NAME
     AnyEvent::Memcached - AnyEvent memcached client
 
-VERSION
-    Version 0.02
-
-NOTICE
-    Interface is stabilized. Some features could be rewritten in future with
-    minor changes.
-
-    Documentation is incomplete yet, look at tests, examples, sources for
-    now ;)
-
 SYNOPSIS
         use AnyEvent::Memcached;
 
@@ -19,6 +9,9 @@ SYNOPSIS
         debug   => 1,
         compress_threshold => 10000,
         namespace => 'my-namespace:',
+
+        # May use another hashing algo:
+        hasher  => 'AnyEvent::Memcached::Hash::WithNext',
 
         cv      => $cv, # AnyEvent->condvar: group callback
         );
@@ -32,13 +25,15 @@ SYNOPSIS
         shift or warn "Set failed: @_"
         } );
 
+        # Single get
         $memd->get( 'key', cb => sub {
         my ($value,$err) = shift;
         $err and return warn "Get failed: @_";
         warn "Value for key is $value";
         } );
 
-        $memd->mget( [ 'key1', 'key2' ], cb => sub {
+        # Multi-get
+        $memd->get( [ 'key1', 'key2' ], cb => sub {
         my ($values,$err) = shift;
         $err and return warn "Get failed: @_";
         warn "Value for key1 is $values->{key1} and value for key2 is $values->{key2}"
@@ -47,18 +42,60 @@ SYNOPSIS
         # Additionally there is rget (see memcachedb-1.2.1-beta)
 
         $memd->rget( 'fromkey', 'tokey', cb => sub {
-        my ($value,$err) = shift;
+        my ($values,$err) = shift;
         $err and warn "Get failed: @_";
+        while (my ($key,$value) = each %$values) {
+            # ...
+        }
         } );
+
+        # Rget with sorted responce values
+        $memd->rget( 'fromkey', 'tokey', rv => 'array' cb => sub {
+        my ($values,$err) = shift;
+        $err and warn "Get failed: @_";
+        for (0 .. $#values/2) {
+            my ($key,$value) = @$values[$_*2,$_*2+1];
+        }
+        } );
+
+DESCRIPTION
+    Asyncronous "memcached/memcachedb" client for AnyEvent framework
+
+NOTICE
+    There is a notices in Cache::Memcached::AnyEvent related to this module.
+    They all has been fixed
+
+    Prerequisites
+        We no longer need Object::Event and Devel::Leak::Cb. At all, the
+        dependency list is like in Cache::Memcached + AnyEvent
+
+    Binary protocol
+        It seems to me, that usage of binary protocol from pure perl gives
+        very little advantage. So for now I don't implement it
+
+    Unimplemented Methods
+        There is a note, that get_multi is not implementeted. In fact, it
+        was implemented by method "get", but the documentation was wrong.
+
+    In general, this module follows the spirit of AnyEvent rather than
+    correspondence to Cache::Memcached interface.
 
 METHODS
   new %args
     Currently supported options:
 
     servers =item namespace =item debug =item cv =item compress_threshold
-    =item compress_enable =item timeout =item noreply
+    =item compress_enable =item timeout =item hasher
+        If set, will use instance of this class for hashing instead of
+        default. For implementing your own hashing, see sources of
+        AnyEvent::Memcached::Hash and AnyEvent::Memcached::Hash::With::Next
+
+    noreply
         If true, additional connection will established for noreply
-        commands. Beware, feature is under development and may be unstable
+        commands.
+
+    cas If true, will enable cas/gets commands (since they are not suppotred
+        in memcachedb)
 
   set_servers
         Setup server list
@@ -77,6 +114,28 @@ METHODS
 
     undef
         Error happens, see $err
+
+  cas( $key, $cas, $value, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
+        $memd->gets($key, cb => sub {
+        my $value = shift;
+        unless (@_) { # No errors
+            my ($cas,$val) = @$value;
+            # Change your value in $val
+            $memd->cas( $key, $cas, $value, cb => sub {
+            my $rc = shift;
+            if ($rc) {
+                # stored
+            } else {
+                # ...
+            }
+            });
+        }
+        })
+
+    $rc is the same, as for "set"
+
+    Store the $value on the server under the $key, but only if CAS value
+    associated with this key is equal to $cas. See also "gets"
 
   add( $key, $value, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
     Like "set", but only stores in memcache if the key doesn't already
@@ -99,18 +158,20 @@ METHODS
   get( $key, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
     Retrieve the value for a $key. $key should be a scalar
 
-  mget( $keys : ARRAYREF, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
-    NOT IMPLEMENTED YET
+  get( $keys : ARRAYREF, [cv => $cv], [ expire => $expire ], cb => $cb->( $values_hash, $err ) )
+    Retrieve the values for a $keys. Return a hash with keys/values
 
-    Retrieve the values for a $keys.
-
-  get_multi : Alias for mget.
-    NOT IMPLEMENTED YET
-
-  gets( $keys : ARRAYREF, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
+  gets( $key, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
     Retrieve the value and its CAS for a $key. $key should be a scalar.
 
-    NOT IMPLEMENTED YET
+    $rc is a reference to an array [$cas, $value], or nothing for
+    non-existent key
+
+  gets( $keys : ARRAYREF, [cv => $cv], [ expire => $expire ], cb => $cb->( $rc, $err ) )
+    Retrieve the values and their CAS for a $keys.
+
+    $rc is a hash reference with $rc->{$key} is a reference to an array
+    [$cas, $value]
 
   delete( $key, [cv => $cv], [ noreply => 1 ], cb => $cb->( $rc, $err ) )
     Delete $key and its value from the cache.
@@ -137,7 +198,7 @@ METHODS
   decr( $key, $decrement, [cv => $cv], [ noreply => 1 ], cb => $cb->( $rc, $err ) )
     Opposite to "incr"
 
-  rget( $from, $till, [ max => 100 ], [ '+left' => 1 ], [ '+right' => 1 ], [cv => $cv], cb => $cb->( $rc, $err ) )
+  rget( $from, $till, [ max => 100 ], [ '+left' => 1 ], [ '+right' => 1 ], [cv => $cv], [ rv => 'array' ], cb => $cb->( $rc, $err ) )
     Memcachedb 1.2.1-beta implements rget method, that allows to look
     through the whole storage
 
@@ -158,13 +219,18 @@ METHODS
     max Maximum number of results to fetch. 100 is the maximum and is the
         default
 
+    rv  If passed rv => 'array', then the return value will be arrayref with
+        values in order, returned by memcachedb.
+
+  incadd ( $key, $increment, [cv => $cv], [ noreply => 1 ], cb => $cb->( $rc, $err ) )
+    Increment key, and if it not exists, add it with initial value. If add
+    fails, try again to incr or fail
+
   destroy
     Shutdown object as much, as possible, incl cleaning of incapsulated
     objects
 
 BUGS
-    Since there is developer release, there may be a lot of bugs
-
     Feature requests are welcome
 
     Bug reports are welcome

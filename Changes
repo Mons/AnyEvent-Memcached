@@ -1,5 +1,13 @@
 Revision history for AnyEvent-Memcached
 
+0.02_01 2009-12-18
+        * Add gets/cas methods
+        * Add incget method
+        * Add options to rget
+        * Rewrite/enhance tests
+        * Remove excess dependencies
+        * Fix documentation
+
 0.02    2009-12-18
         * First non-dev release
 
