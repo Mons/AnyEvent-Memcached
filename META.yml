@@ -10,7 +10,7 @@ build_requires:
 configure_requires:
   ExtUtils::MakeMaker: 6.42
 distribution_type: module
-generated_by: 'Module::Install version 0.91'
+generated_by: 'Module::Install version 1.00'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -25,7 +25,7 @@ no_index:
 provides:
   AnyEvent::Memcached:
     file: lib/AnyEvent/Memcached.pm
-    version: 0.02_02
+    version: 0.03
 requires:
   AnyEvent: 5.0
   AnyEvent::Connection: 0.05
@@ -35,4 +35,4 @@ requires:
   perl: 5.8.8
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.02_02
+version: 0.03

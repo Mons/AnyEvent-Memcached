@@ -8,7 +8,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =cut
 
-our $VERSION = '0.02_02';
+our $VERSION = '0.03';
 
 =head1 SYNOPSIS
 
