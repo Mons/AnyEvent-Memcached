@@ -8,7 +8,7 @@ use base 'AnyEvent::Connection';
 use Carp;
 use AnyEvent::Connection::Util;
 use Scalar::Util qw(weaken);
-use Devel::Leak::Cb;
+#use Devel::Leak::Cb;
 sub DEBUG () { 0 }
 
 use AnyEvent::Memcached::Conn;

@@ -1,5 +1,8 @@
 Revision history for AnyEvent-Memcached
 
+0.04    2010-07-10
+        * Remove missed dep
+
 0.03    2010-07-09
         * Publish previous changes
 
