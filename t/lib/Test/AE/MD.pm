@@ -39,7 +39,13 @@ sub runtest(&) {
 		$cv->recv;
 		$code->($host,$port);
 	} else {
-		system("memcachedb -h > /dev/null") == 0 or plan skip_all => "Can't run memcachedb";
+		use version;
+		my $v = `memcachedb -h 2>&1`;
+		$? == 0 or plan skip_all => "Can't run memcached: $!";
+		my ($ver,$sub) = $v =~ m{.*?([\d.]+)(-\w+)?};
+		qv($ver) ge qv "1.2.1" or plan skip_all => "Memcachedb too old: $ver";
+		diag "using memcachedb $ver$sub";
+		
 		eval q{use Test::TCP;1} or plan skip_all => "No Test::TCP";
 		$host = "127.0.0.1";
 		my $db = lib::abs::path('tdb');

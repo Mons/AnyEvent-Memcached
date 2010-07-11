@@ -1,4 +1,5 @@
-package AnyEvent::Memcached::Hash;
+package #hide
+	AnyEvent::Memcached::Hash;
 
 use common::sense 2;m{
 use strict;

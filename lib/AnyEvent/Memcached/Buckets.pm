@@ -1,4 +1,5 @@
-package AnyEvent::Memcached::Buckets;
+package #hide
+	AnyEvent::Memcached::Buckets;
 
 use common::sense 2;m{
 use strict;

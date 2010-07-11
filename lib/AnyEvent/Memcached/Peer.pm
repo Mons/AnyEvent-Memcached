@@ -1,4 +1,5 @@
-package AnyEvent::Memcached::Peer;
+package #hide
+	AnyEvent::Memcached::Peer;
 
 use common::sense 2;m{
 use strict;

@@ -45,7 +45,13 @@ sub runtest(&) {
 		$cv->recv;
 		$code->($host,$port);
 	} else {
-		system("memcached -h > /dev/null") == 0 or plan skip_all => "Can't run memcached";
+		use version;
+		my $v = `memcached -h 2>&1`;
+		$? == 0 or plan skip_all => "Can't run memcached: $!";
+		my ($ver,$sub) = $v =~ m{.*?([\d.]+)(-\w+)?};
+		qv($ver) ge qv "1.2.4" or plan skip_all => "Memcached too old: $ver";
+		diag "using memcached $ver$sub";
+		
 		eval q{use Test::TCP;1 } or plan skip_all => "No Test::TCP";
 		$host = "127.0.0.1";
 		test_tcp(

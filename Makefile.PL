@@ -3,12 +3,12 @@ use inc::Module::Install;
 name     'AnyEvent-Memcached';
 author   'Mons Anderson <mons@cpan.org>';
 all_from 'lib/AnyEvent/Memcached.pm';
-version   my $v = '0.03';
 license  'perl';
 
 test_requires 'Test::More';
 test_requires 'Test::NoWarnings';
 test_requires 'lib::abs', '0.90';
+test_requires 'version';
 
 requires 'common::sense',        '2';
 requires 'Storable';
@@ -20,11 +20,7 @@ requires 'String::CRC32';
 #auto_include;
 #auto_include_deps;
 
-provides 'AnyEvent::Memcached' => {
-	version => $v,
-	file    => 'lib/AnyEvent/Memcached.pm',
-};
-
+auto_provides;
 auto_install;
 
 WriteAll;
