@@ -8,7 +8,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =cut
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 =head1 SYNOPSIS
 
@@ -811,7 +811,7 @@ sub incadd {
 			$args{cb}($rc, @_);
 		}
 		else {
-			$self->add( $key, $val, cb => sub {
+			$self->add( $key, $val, %args, cb => sub {
 				if ( my $rc = shift or @_ ) {
 					#if (@_) {
 					#	warn("add failed: @_");
@@ -822,7 +822,7 @@ sub incadd {
 				}
 				else {
 					#warn "add failed, try again";
-					$self->incr_add($key,$val,%args);
+					$self->incadd($key,$val,%args);
 				}
 			});
 		}
