@@ -1,5 +1,8 @@
 Revision history for AnyEvent-Memcached
 
+0.06    2011-07-08
+        * Fix typo in incadd
+
 0.05    2010-07-11
         * Fix META
         * Try to fix tests
