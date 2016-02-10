@@ -8,7 +8,7 @@ AnyEvent::Memcached - AnyEvent memcached client
 
 =cut
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 =head1 SYNOPSIS
 
@@ -19,18 +19,18 @@ our $VERSION = '0.06';
         debug   => 1,
         compress_threshold => 10000,
         namespace => 'my-namespace:',
-        
+
         # May use another hashing algo:
         hasher  => 'AnyEvent::Memcached::Hash::WithNext',
 
         cv      => $cv, # AnyEvent->condvar: group callback
     );
-    
+
     $memd->set_servers([ "10.0.0.15:11211", "10.0.0.15:11212" ]);
-    
+
     # Basic methods are like in Cache::Memcached, but with additional cb => sub { ... };
     # first argument to cb is return value, second is the error(s)
-    
+
     $memd->set( key => $value, cb => sub {
         shift or warn "Set failed: @_"
     } );
@@ -58,7 +58,7 @@ our $VERSION = '0.06';
             # ...
         }
     } );
-    
+
     # Rget with sorted responce values
     $memd->rget( 'fromkey', 'tokey', rv => 'array' cb => sub {
         my ($values,$err) = shift;
@@ -172,8 +172,9 @@ sub new {
 	$self->{_hasher} = $args{hasher} || 'AnyEvent::Memcached::Hash';
 
 	$self->set_servers(delete $args{servers});
-	$self->{compress_enable} and !$HAVE_ZLIB and Carp::carp("Have no Compress::Zlib installed, but have compress_enable option");
-	require Carp; Carp::carp "@{[ keys %args ]} options are not supported yet" if %args;
+	$self->{compress_enable} and !$HAVE_ZLIB and carp("Have no Compress::Zlib installed, but have compress_enable option");
+	carp "@{[ keys %args ]} options are not supported yet" if %args;
+	Carp::confess "Invalid characters in 'namespace' option: '$self->{namespace}'" if $self->{namespace} =~ /[\x00-\x20\x7F]/;
 	$self;
 }
 
@@ -248,6 +249,11 @@ sub _do {
 	my %res;
 	my %err;
 	my $res;
+
+	if ($key =~ /[\x00-\x20\x7F]/) {
+		carp "Invalid characters in key '$key'";
+		return $args{cb} ? $args{cb}(undef, "Invalid key") : 0;
+	}
 	if ($args{noreply} and !$self->{noreply}) {
 		if (!$args{cb}) {
 			carp "Noreply option not set, but noreply command requested. command ignored";
@@ -335,6 +341,11 @@ sub _set {
 	my $val = shift;
 	my %args = @_;
 	return $args{cb}(undef, "Readonly") if $self->{readonly};
+	if ($cas =~ /\D/) {
+		carp "Invalid characters in cas '$cas'";
+		return $args{cb}(undef, "Invalid cas");
+	}
+
 	#warn "cv begin";
 
 	use bytes; # return bytes from length()
@@ -566,7 +577,11 @@ sub _get {
 	if (ref $keys and ref $keys eq 'ARRAY') {
 		$array = 1;
 	}
-	
+	if (my ($key) = grep { /[\x00-\x20\x7F]/ } $array ? @$keys : $keys) {
+		carp "Invalid characters in key '$key'";
+		return $args{cb} ? $args{cb}(undef, "Invalid key") : 0;
+	}
+
 	$_ and $_->begin for $self->{cv}, $args{cv};
 	my $servers = $self->{hash}->servers($keys, for => 'get');
 	my %res;
