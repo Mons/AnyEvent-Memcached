@@ -41,7 +41,7 @@ sub runtest(&) {
 	} else {
 		use version;
 		my $v = `memcachedb -h 2>&1`;
-		$? == 0 or plan skip_all => "Can't run memcached: $!";
+		$? == 0 or plan skip_all => "Can't run memcachedb: $!";
 		my ($ver,$sub) = $v =~ m{.*?([\d.]+)(-\w+)?};
 		qv($ver) ge qv "1.2.1" or plan skip_all => "Memcachedb too old: $ver";
 		diag "using memcachedb $ver$sub";
