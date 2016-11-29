@@ -1,5 +1,8 @@
 Revision history for AnyEvent-Memcached
 
+0.08    2016-11-29
+        * Fix cv-begin/end
+
 0.06    2011-07-08
         * Fix typo in incadd
 
