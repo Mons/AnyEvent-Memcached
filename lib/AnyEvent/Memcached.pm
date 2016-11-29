@@ -300,6 +300,7 @@ sub _do {
 		
 		$_ and $_->end for $args{cv}, $self->{cv};
 	};
+	$cv->begin;
 	for my $srv ( keys %$servers ) {
 		for my $real (@{ $servers->{$srv} }) {
 			$cv->begin;
@@ -327,6 +328,7 @@ sub _do {
 			);
 		}
 	}
+	$cv->end;
 	return;
 }
 
