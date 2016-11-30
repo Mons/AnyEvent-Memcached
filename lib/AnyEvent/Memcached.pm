@@ -408,6 +408,7 @@ sub _set {
 		
 		$_ and $_->end for $args{cv}, $self->{cv};
 	};
+	$cv->begin;
 	for my $srv ( keys %$servers ) {
 		# ??? Can hasher return more than one key for single key passed?
 		# If no, need to remove this inner loop
@@ -445,6 +446,7 @@ sub _set {
 			);
 		}
 	}
+	$cv->end;
 	return;
 }
 
@@ -592,6 +594,7 @@ sub _get {
 		$args{cb}( $array ? \%res :  $res{ $keys } );
 		$_ and $_->end for $args{cv}, $self->{cv};
 	};
+	$cv->begin;
 	for my $srv ( keys %$servers ) {
 		#warn "server for $key = $srv, $self->{peers}{$srv}";
 		$cv->begin;
@@ -601,6 +604,7 @@ sub _get {
 			$cv->end;
 		});
 	}
+	$cv->end;
 	return;
 }
 sub get  { shift->_get(get => @_) }
